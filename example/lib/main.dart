@@ -185,9 +185,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _isInitialized
-                              ? 'Initialized'
-                              : 'Not Initialized',
+                          _isInitialized ? 'Initialized' : 'Not Initialized',
                         ),
                       ],
                     ),
@@ -290,7 +288,8 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                       height: 300,
                       child: _events.isEmpty
                           ? const Center(
-                              child: Text('No events yet. Start a session and interact with the app.'),
+                              child: Text(
+                                  'No events yet. Start a session and interact with the app.'),
                             )
                           : ListView.builder(
                               itemCount: _events.length,
@@ -305,7 +304,8 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                                   ),
                                   trailing: Text(
                                     '${event.payload.length} fields',
-                                    style: Theme.of(context).textTheme.bodySmall,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
                                   ),
                                 );
                               },
@@ -334,7 +334,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                     ),
                     const SizedBox(height: 8),
                     TextField(
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Type here to test keystroke timing...',
                         border: OutlineInputBorder(),
                       ),
@@ -366,4 +366,3 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
     );
   }
 }
-
