@@ -42,7 +42,7 @@ class InputSignalCollector: NSObject, UITextFieldDelegate, UITextViewDelegate {
             monitoredTextViews.append(textView)
             NotificationCenter.default.addObserver(
                 self,
-                selector: #selector(textViewDidChange(_:)),
+                selector: #selector(textViewNotificationDidChange(_:)),
                 name: UITextView.textDidChangeNotification,
                 object: textView
             )
@@ -85,7 +85,7 @@ class InputSignalCollector: NSObject, UITextFieldDelegate, UITextViewDelegate {
         onKeystroke()
     }
 
-    @objc private func textViewDidChange(_ notification: Notification) {
+    @objc private func textViewNotificationDidChange(_ notification: Notification) {
         onKeystroke()
     }
 
