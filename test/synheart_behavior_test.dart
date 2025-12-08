@@ -159,7 +159,7 @@ void main() {
     test('updateConfig sends new configuration', () async {
       final behavior = await SynheartBehavior.initialize();
 
-      final  newConfig = BehaviorConfig(
+      final newConfig = BehaviorConfig(
         enableInputSignals: false,
         enableAttentionSignals: true,
       );
