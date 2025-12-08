@@ -84,7 +84,8 @@ class SynheartBehavior {
         '${_config.sessionIdPrefix ?? 'SESS'}-${DateTime.now().millisecondsSinceEpoch}';
 
     try {
-      await _channel.invokeMethod('startSession', {'sessionId': sessionIdToUse});
+      await _channel
+          .invokeMethod('startSession', {'sessionId': sessionIdToUse});
       _currentSessionId = sessionIdToUse;
 
       final session = BehaviorSession(
@@ -207,4 +208,3 @@ class SynheartBehavior {
   /// Get the current active session ID, if any.
   String? get currentSessionId => _currentSessionId;
 }
-

@@ -89,4 +89,3 @@ class BehaviorStats {
         'timestamp': timestamp,
       };
 }
-

@@ -80,4 +80,3 @@ class BehaviorEvent {
     return 'BehaviorEvent(sessionId: $sessionId, type: $type, timestamp: $timestamp)';
   }
 }
-

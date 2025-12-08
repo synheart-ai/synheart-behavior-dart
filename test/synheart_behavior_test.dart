@@ -109,7 +109,8 @@ void main() {
 
     test('start session with custom ID', () async {
       final behavior = await SynheartBehavior.initialize();
-      final session = await behavior.startSession(sessionId: 'custom-session-id');
+      final session =
+          await behavior.startSession(sessionId: 'custom-session-id');
 
       expect(session.sessionId, 'custom-session-id');
     });
@@ -158,7 +159,7 @@ void main() {
     test('updateConfig sends new configuration', () async {
       final behavior = await SynheartBehavior.initialize();
 
-      final newConfig = BehaviorConfig(
+      final  newConfig = BehaviorConfig(
         enableInputSignals: false,
         enableAttentionSignals: true,
       );
@@ -180,7 +181,7 @@ void main() {
           .handlePlatformMessage(
         channel.name,
         channel.codec.encodeMethodCall(
-          MethodCall('onEvent', {
+          const MethodCall('onEvent', {
             'session_id': 'test-session',
             'timestamp': 1000,
             'type': 'typingCadence',
@@ -197,7 +198,7 @@ void main() {
           .handlePlatformMessage(
         channel.name,
         channel.codec.encodeMethodCall(
-          MethodCall('onEvent', {
+          const MethodCall('onEvent', {
             'session_id': 'test-session',
             'timestamp': 2000,
             'type': 'scrollVelocity',
@@ -223,6 +224,7 @@ void main() {
       final session = await behavior.startSession();
 
       await behavior.dispose();
+      print(session);
 
       expect(behavior.isInitialized, false);
       expect(methodCalls.any((call) => call.method == 'dispose'), true);

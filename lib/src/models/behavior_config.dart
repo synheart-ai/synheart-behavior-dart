@@ -38,4 +38,3 @@ class BehaviorConfig {
         'maxIdleGapSeconds': maxIdleGapSeconds,
       };
 }
-

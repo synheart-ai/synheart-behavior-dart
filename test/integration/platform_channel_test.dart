@@ -117,7 +117,8 @@ void main() {
       await behavior.startSession(sessionId: 'custom-id');
 
       expect(methodCalls.any((call) => call.method == 'startSession'), true);
-      final startCall = methodCalls.firstWhere((call) => call.method == 'startSession');
+      final startCall =
+          methodCalls.firstWhere((call) => call.method == 'startSession');
       expect(startCall.arguments['sessionId'], 'custom-id');
     });
 
@@ -158,7 +159,8 @@ void main() {
       await behavior.updateConfig(newConfig);
 
       expect(methodCalls.any((call) => call.method == 'updateConfig'), true);
-      final updateCall = methodCalls.firstWhere((call) => call.method == 'updateConfig');
+      final updateCall =
+          methodCalls.firstWhere((call) => call.method == 'updateConfig');
       expect(updateCall.arguments['enableInputSignals'], false);
       expect(updateCall.arguments['eventBatchSize'], 25);
     });
@@ -262,7 +264,8 @@ void main() {
   });
 }
 
-Future<void> _sendEvent(MethodChannel channel, Map<String, dynamic> event) async {
+Future<void> _sendEvent(
+    MethodChannel channel, Map<String, dynamic> event) async {
   await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .handlePlatformMessage(
     channel.name,

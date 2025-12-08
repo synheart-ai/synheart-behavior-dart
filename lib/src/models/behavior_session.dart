@@ -97,4 +97,3 @@ class BehaviorSessionSummary {
         'fragmentation_index': fragmentationIndex,
       };
 }
-

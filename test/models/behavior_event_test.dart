@@ -73,33 +73,45 @@ void main() {
         expect(BehaviorEventType.values.length, greaterThanOrEqualTo(20));
 
         // Keystroke events
-        expect(BehaviorEventType.values, contains(BehaviorEventType.typingCadence));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.typingBurst));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.typingCadence));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.typingBurst));
 
         // Scroll events
-        expect(BehaviorEventType.values, contains(BehaviorEventType.scrollVelocity));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.scrollAcceleration));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.scrollJitter));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.scrollStop));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.scrollVelocity));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.scrollAcceleration));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.scrollJitter));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.scrollStop));
 
         // Gesture events
         expect(BehaviorEventType.values, contains(BehaviorEventType.tapRate));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.longPressRate));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.dragVelocity));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.longPressRate));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.dragVelocity));
 
         // App switching events
         expect(BehaviorEventType.values, contains(BehaviorEventType.appSwitch));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.foregroundDuration));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.foregroundDuration));
 
         // Idle events
         expect(BehaviorEventType.values, contains(BehaviorEventType.idleGap));
         expect(BehaviorEventType.values, contains(BehaviorEventType.microIdle));
         expect(BehaviorEventType.values, contains(BehaviorEventType.midIdle));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.taskDropIdle));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.taskDropIdle));
 
         // Session events
-        expect(BehaviorEventType.values, contains(BehaviorEventType.sessionStability));
-        expect(BehaviorEventType.values, contains(BehaviorEventType.fragmentationIndex));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.sessionStability));
+        expect(BehaviorEventType.values,
+            contains(BehaviorEventType.fragmentationIndex));
       });
 
       test('event type enum name matches string', () {

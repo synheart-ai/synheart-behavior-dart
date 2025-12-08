@@ -193,7 +193,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.play_circle,
                             color: Colors.blue,
                           ),
@@ -333,7 +333,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
                       'Try typing in the field below or scrolling to generate behavioral events.',
                     ),
                     const SizedBox(height: 8),
-                    TextField(
+                    const TextField(
                       decoration: InputDecoration(
                         hintText: 'Type here to test keystroke timing...',
                         border: OutlineInputBorder(),
