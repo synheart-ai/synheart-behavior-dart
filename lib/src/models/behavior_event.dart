@@ -33,6 +33,10 @@ enum BehaviorEventType {
   orientationShift,
   shakePattern,
   microMovement,
+
+  /// Notification events
+  notificationReceived,
+  notificationOpened,
 }
 
 /// A single behavioral event emitted by the SDK.

@@ -20,6 +20,22 @@ class BehaviorConfig {
   /// Default: 10 seconds.
   final double maxIdleGapSeconds;
 
+  /// Anonymous user identifier for HSI payloads (e.g., "anon_43a8cd").
+  /// If null, will be auto-generated.
+  final String? userId;
+
+  /// Device identifier for HSI payloads (e.g., "synheart_ios_14").
+  /// If null, will be auto-generated based on platform.
+  final String? deviceId;
+
+  /// Behavior SDK version for HSI payloads (e.g., "1.0.0").
+  /// Default: "1.0.0"
+  final String behaviorVersion;
+
+  /// Whether behavior tracking consent is granted.
+  /// Default: true
+  final bool consentBehavior;
+
   const BehaviorConfig({
     this.enableInputSignals = true,
     this.enableAttentionSignals = true,
@@ -27,6 +43,10 @@ class BehaviorConfig {
     this.sessionIdPrefix,
     this.eventBatchSize = 10,
     this.maxIdleGapSeconds = 10.0,
+    this.userId,
+    this.deviceId,
+    this.behaviorVersion = '1.0.0',
+    this.consentBehavior = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -36,5 +56,9 @@ class BehaviorConfig {
         'sessionIdPrefix': sessionIdPrefix,
         'eventBatchSize': eventBatchSize,
         'maxIdleGapSeconds': maxIdleGapSeconds,
+        'userId': userId,
+        'deviceId': deviceId,
+        'behaviorVersion': behaviorVersion,
+        'consentBehavior': consentBehavior,
       };
 }

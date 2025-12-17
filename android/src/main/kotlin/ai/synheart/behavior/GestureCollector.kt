@@ -11,8 +11,8 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Collects gesture and scroll signals.
- * Privacy: Only timing and velocity metrics, no content or coordinates.
+ * Collects gesture and scroll signals. Privacy: Only timing and velocity metrics, no content or
+ * coordinates.
  */
 class GestureCollector(private var config: BehaviorConfig) {
 
@@ -34,33 +34,39 @@ class GestureCollector(private var config: BehaviorConfig) {
     private var dragStartX = 0f
     private var dragStartY = 0f
 
-    private val scrollListener = ViewTreeObserver.OnScrollChangedListener {
-        onScroll()
-    }
+    private val scrollListener = ViewTreeObserver.OnScrollChangedListener { onScroll() }
 
-    private val touchListener = View.OnTouchListener { view, event ->
-        handleTouchEvent(event)
-        false // Don't consume the event
-    }
+    private val touchListener =
+            View.OnTouchListener { view, event ->
+                handleTouchEvent(event)
+                false // Don't consume the event
+            }
 
     fun setEventHandler(handler: (BehaviorEvent) -> Unit) {
         this.eventHandler = handler
     }
 
     fun attachToView(view: View) {
-        if (!config.enableInputSignals) return
+        if (!config.enableInputSignals) {
+            android.util.Log.d("GestureCollector", "Input signals disabled, not attaching")
+            return
+        }
 
+        android.util.Log.d("GestureCollector", "Attaching to view: ${view.javaClass.simpleName}")
         // Attach touch listener for gesture detection
         view.setOnTouchListener(touchListener)
+        android.util.Log.d("GestureCollector", "Touch listener attached")
 
         // Attach scroll listeners based on view type
         when (view) {
             is RecyclerView -> {
-                view.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                        onScrollDelta(dy)
-                    }
-                })
+                view.addOnScrollListener(
+                        object : RecyclerView.OnScrollListener() {
+                            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                                onScrollDelta(dy)
+                            }
+                        }
+                )
             }
             is ScrollView, is NestedScrollView -> {
                 view.viewTreeObserver.addOnScrollChangedListener(scrollListener)
@@ -90,6 +96,7 @@ class GestureCollector(private var config: BehaviorConfig) {
                     // Quick tap
                     tapCount++
                     tapTimestamps.add(System.currentTimeMillis())
+                    android.util.Log.d("GestureCollector", "TAP DETECTED! Count: $tapCount")
 
                     // Keep only last 50 taps
                     while (tapTimestamps.size > 50) {
@@ -138,18 +145,21 @@ class GestureCollector(private var config: BehaviorConfig) {
         }
 
         // Calculate acceleration (change in velocity)
-        val acceleration = if (previousVelocity > 0) {
-            (velocity - previousVelocity) / timeDelta * 1000.0
-        } else 0.0
+        val acceleration =
+                if (previousVelocity > 0) {
+                    (velocity - previousVelocity) / timeDelta * 1000.0
+                } else 0.0
 
         // Calculate jitter (variance in velocity)
-        val jitter = if (scrollVelocities.size > 2) {
-            val mean = scrollVelocities.average()
-            sqrt(scrollVelocities.map { (it - mean) * (it - mean) }.average())
-        } else 0.0
+        val jitter =
+                if (scrollVelocities.size > 2) {
+                    val mean = scrollVelocities.average()
+                    sqrt(scrollVelocities.map { (it - mean) * (it - mean) }.average())
+                } else 0.0
 
         // Emit scroll events
         if (velocity > 10.0) { // Only emit if significant movement
+            android.util.Log.d("GestureCollector", "SCROLL DETECTED! Velocity: $velocity px/s")
             emitScrollVelocity(velocity)
 
             if (abs(acceleration) > 100.0) {
@@ -171,56 +181,49 @@ class GestureCollector(private var config: BehaviorConfig) {
 
     private fun emitScrollVelocity(velocity: Double) {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "scrollVelocity",
-                payload = mapOf(
-                    "velocity" to velocity,
-                    "unit" to "pixels_per_second"
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "scrollVelocity",
+                        payload = mapOf("velocity" to velocity, "unit" to "pixels_per_second")
                 )
-            )
         )
     }
 
     private fun emitScrollAcceleration(acceleration: Double) {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "scrollAcceleration",
-                payload = mapOf(
-                    "acceleration" to acceleration,
-                    "unit" to "pixels_per_second_squared"
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "scrollAcceleration",
+                        payload =
+                                mapOf(
+                                        "acceleration" to acceleration,
+                                        "unit" to "pixels_per_second_squared"
+                                )
                 )
-            )
         )
     }
 
     private fun emitScrollJitter(jitter: Double) {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "scrollJitter",
-                payload = mapOf(
-                    "jitter" to jitter,
-                    "sample_size" to scrollVelocities.size
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "scrollJitter",
+                        payload = mapOf("jitter" to jitter, "sample_size" to scrollVelocities.size)
                 )
-            )
         )
     }
 
     private fun emitScrollStop() {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "scrollStop",
-                payload = mapOf(
-                    "final_velocity" to previousVelocity
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "scrollStop",
+                        payload = mapOf("final_velocity" to previousVelocity)
                 )
-            )
         )
     }
 
@@ -230,44 +233,41 @@ class GestureCollector(private var config: BehaviorConfig) {
         val recentTaps = tapTimestamps.filter { it > now - 10000 }
         val tapRate = recentTaps.size / 10.0
 
+        android.util.Log.d("GestureCollector", "Emitting tapRate event: rate=$tapRate")
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "tapRate",
-                payload = mapOf(
-                    "tap_rate" to tapRate,
-                    "taps_in_window" to recentTaps.size,
-                    "window_seconds" to 10
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "tapRate",
+                        payload =
+                                mapOf(
+                                        "tap_rate" to tapRate,
+                                        "taps_in_window" to recentTaps.size,
+                                        "window_seconds" to 10
+                                )
                 )
-            )
         )
     }
 
     private fun emitLongPressRate() {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "longPressRate",
-                payload = mapOf(
-                    "long_press_count" to longPressCount
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "longPressRate",
+                        payload = mapOf("long_press_count" to longPressCount)
                 )
-            )
         )
     }
 
     private fun emitDragVelocity(velocity: Double) {
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "dragVelocity",
-                payload = mapOf(
-                    "velocity" to velocity,
-                    "unit" to "pixels_per_second"
+                BehaviorEvent(
+                        sessionId = "current",
+                        timestamp = System.currentTimeMillis(),
+                        type = "dragVelocity",
+                        payload = mapOf("velocity" to velocity, "unit" to "pixels_per_second")
                 )
-            )
         )
     }
 

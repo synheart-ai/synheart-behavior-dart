@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UserNotifications
 
 public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
     private var channel: FlutterMethodChannel?
@@ -43,6 +44,10 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
         case "dispose":
             dispose()
             result(nil)
+        case "checkNotificationPermission":
+            checkNotificationPermission(result: result)
+        case "requestNotificationPermission":
+            requestNotificationPermission(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -149,6 +154,28 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
     // Helper method to emit events to Flutter
     private func emitEvent(event: [String: Any]) {
         channel?.invokeMethod("onEvent", arguments: event)
+    }
+
+    private func checkNotificationPermission(result: @escaping FlutterResult) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            DispatchQueue.main.async {
+                let isAuthorized = settings.authorizationStatus == .authorized || 
+                                   settings.authorizationStatus == .provisional
+                result(isAuthorized)
+            }
+        }
+    }
+
+    private func requestNotificationPermission(result: @escaping FlutterResult) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    result(FlutterError(code: "PERMISSION_ERROR", message: error.localizedDescription, details: nil))
+                } else {
+                    result(granted)
+                }
+            }
+        }
     }
 }
 
