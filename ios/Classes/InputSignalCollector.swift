@@ -113,10 +113,14 @@ class InputSignalCollector: NSObject, UITextFieldDelegate, UITextViewDelegate {
             currentBurstLength = 1
         }
 
-        // Calculate inter-key latency
+        // Calculate inter-key latency and emit typing cadence
+        // For first keystroke, use a default latency of 0 (will be counted but with 0 latency)
         if lastKeystrokeTime > 0 {
             let latency = now - lastKeystrokeTime
             emitTypingCadence(interKeyLatency: latency)
+        } else {
+            // First keystroke: emit with 0 latency so it's counted
+            emitTypingCadence(interKeyLatency: 0)
         }
 
         lastKeystrokeTime = now

@@ -1,11 +1,8 @@
 package ai.synheart.behavior
 
-import java.util.concurrent.ConcurrentHashMap
 import java.util.LinkedList
 
-/**
- * Collects and maintains rolling statistics for behavioral signals.
- */
+/** Collects and maintains rolling statistics for behavioral signals. */
 class StatsCollector {
 
     private val recentEvents = LinkedList<BehaviorEvent>()
@@ -56,7 +53,8 @@ class StatsCollector {
                 latestTapRate = event.payload["tap_rate"] as? Double
             }
             "foregroundDuration" -> {
-                latestForegroundDuration = (event.payload["duration_seconds"] as? Number)?.toDouble()
+                latestForegroundDuration =
+                        (event.payload["duration_seconds"] as? Number)?.toDouble()
             }
             "idleGap" -> {
                 latestIdleGapSeconds = (event.payload["idle_seconds"] as? Number)?.toDouble()
@@ -73,25 +71,31 @@ class StatsCollector {
                     appSwitchTimestamps.removeFirst()
                 }
             }
+            "notificationReceived" -> {
+                // Track notification received events
+            }
+            "notificationOpened" -> {
+                // Track notification opened events
+            }
         }
     }
 
     @Synchronized
     fun getCurrentStats(): BehaviorStats {
         return BehaviorStats(
-            typingCadence = latestTypingCadence,
-            interKeyLatency = latestInterKeyLatency,
-            burstLength = latestBurstLength,
-            scrollVelocity = latestScrollVelocity,
-            scrollAcceleration = latestScrollAcceleration,
-            scrollJitter = latestScrollJitter,
-            tapRate = latestTapRate,
-            appSwitchesPerMinute = appSwitchTimestamps.size,
-            foregroundDuration = latestForegroundDuration,
-            idleGapSeconds = latestIdleGapSeconds,
-            stabilityIndex = latestStabilityIndex,
-            fragmentationIndex = latestFragmentationIndex,
-            timestamp = System.currentTimeMillis()
+                typingCadence = latestTypingCadence,
+                interKeyLatency = latestInterKeyLatency,
+                burstLength = latestBurstLength,
+                scrollVelocity = latestScrollVelocity,
+                scrollAcceleration = latestScrollAcceleration,
+                scrollJitter = latestScrollJitter,
+                tapRate = latestTapRate,
+                appSwitchesPerMinute = appSwitchTimestamps.size,
+                foregroundDuration = latestForegroundDuration,
+                idleGapSeconds = latestIdleGapSeconds,
+                stabilityIndex = latestStabilityIndex,
+                fragmentationIndex = latestFragmentationIndex,
+                timestamp = System.currentTimeMillis()
         )
     }
 

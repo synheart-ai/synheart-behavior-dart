@@ -15,6 +15,7 @@ public class BehaviorSDK {
     private let inputSignalCollector: InputSignalCollector
     private let attentionSignalCollector: AttentionSignalCollector
     private let gestureCollector: GestureCollector
+    private let notificationCollector: NotificationCollector
 
     // Lifecycle tracking
     private var lastInteractionTime = Date()
@@ -25,6 +26,7 @@ public class BehaviorSDK {
         self.inputSignalCollector = InputSignalCollector(config: config)
         self.attentionSignalCollector = AttentionSignalCollector(config: config)
         self.gestureCollector = GestureCollector(config: config)
+        self.notificationCollector = NotificationCollector(config: config)
     }
 
     public func initialize() {
@@ -44,7 +46,13 @@ public class BehaviorSDK {
             self?.statsCollector.recordEvent(event)
         }
 
+        notificationCollector.setEventHandler { [weak self] event in
+            self?.emitEvent(event)
+            self?.statsCollector.recordEvent(event)
+        }
+
         attentionSignalCollector.startMonitoring()
+        notificationCollector.startMonitoring()
 
         // Start idle detection
         startIdleTimer()
@@ -95,6 +103,7 @@ public class BehaviorSDK {
         inputSignalCollector.updateConfig(newConfig)
         attentionSignalCollector.updateConfig(newConfig)
         gestureCollector.updateConfig(newConfig)
+        notificationCollector.updateConfig(newConfig)
     }
 
     public func attachToView(_ view: UIView) {
@@ -110,6 +119,7 @@ public class BehaviorSDK {
         inputSignalCollector.dispose()
         attentionSignalCollector.dispose()
         gestureCollector.dispose()
+        notificationCollector.dispose()
     }
 
     public func onUserInteraction() {
