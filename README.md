@@ -122,7 +122,7 @@ print('Scroll velocity: ${stats.scrollVelocity}');
 
 ## License
 
-[Add your license here]
+Apache 2.0 License
 
 ## Author
 
