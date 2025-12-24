@@ -42,33 +42,33 @@ class BehaviorFeatureExtractor {
       return BehaviorWindowFeatures.zero(windowType);
     }
 
-    // Compute raw metrics
-    // For tap rate, count tapRate events (each tap emits one)
-    final tapCount = _countEvents(events, BehaviorEventType.tapRate);
+    // Compute raw metrics using new event types
+    // For tap rate, count tap events
+    final tapCount = _countEvents(events, BehaviorEventType.tap);
 
-    // For keystroke rate: count typingCadence events (each keystroke emits one)
-    // Note: typingBurst events represent bursts that already ended,
-    // so those keystrokes are already counted in typingCadence events
-    final keystrokeCount = _countEvents(events, [
-      BehaviorEventType.typingCadence,
-      // Don't double-count: typingBurst events are summaries, not additional keystrokes
-    ]);
+    // For keystroke rate: count tap events that are not long press
+    // Note: In the new model, keystrokes are captured as tap events
+    // We'll need to distinguish them, but for now count non-long-press taps
+    final tapEvents = _filterEvents(events, BehaviorEventType.tap);
+    final keystrokeCount = tapEvents.where((e) {
+      final longPress = e.metrics['long_press'] as bool? ?? false;
+      return !longPress;
+    }).length;
 
-    final scrollEvents =
-        _filterEvents(events, BehaviorEventType.scrollVelocity);
+    final scrollEvents = _filterEvents(events, BehaviorEventType.scroll);
 
-    final switchCount = _countEvents(events, BehaviorEventType.appSwitch);
-    final idleEvents = _filterEvents(events, [
-      BehaviorEventType.idleGap,
-      BehaviorEventType.microIdle,
-      BehaviorEventType.midIdle,
-      BehaviorEventType.taskDropIdle,
-    ]);
+    // App switches: In new model, these might be tracked differently
+    // For now, we'll need to add app switch tracking separately
+    final switchCount = 0; // TODO: Add app switch event type if needed
+
     // Separate notification counting
-    final notifReceivedCount =
-        _countEvents(events, BehaviorEventType.notificationReceived);
-    final notifOpenedCount =
-        _countEvents(events, BehaviorEventType.notificationOpened);
+    final notificationEvents =
+        _filterEvents(events, BehaviorEventType.notification);
+    final notifReceivedCount = notificationEvents.length;
+    final notifOpenedCount = notificationEvents.where((e) {
+      final action = e.metrics['action'] as String?;
+      return action == 'opened' || action == 'answered';
+    }).length;
 
     // Normalize rates
     final windowDurationSeconds = windowDurationMs / 1000.0;
@@ -100,8 +100,8 @@ class BehaviorFeatureExtractor {
     final notificationScore =
         (0.6 * notifRateNorm + 0.4 * notifOpenRateNorm).clamp(0.0, 1.0);
 
-    // Compute idle ratio
-    final idleRatio = _computeIdleRatio(idleEvents, windowDurationMs);
+    // Compute idle ratio (from event gaps)
+    final idleRatio = _computeIdleRatio(events, windowDurationMs);
 
     // Compute burstiness (activity clustering)
     final burstiness = _computeBurstiness(events, windowDurationMs);
@@ -179,9 +179,9 @@ class BehaviorFeatureExtractor {
     dynamic eventTypes,
   ) {
     if (eventTypes is BehaviorEventType) {
-      return events.where((e) => e.type == eventTypes).length;
+      return events.where((e) => e.eventType == eventTypes).length;
     } else if (eventTypes is List<BehaviorEventType>) {
-      return events.where((e) => eventTypes.contains(e.type)).length;
+      return events.where((e) => eventTypes.contains(e.eventType)).length;
     }
     return 0;
   }
@@ -192,9 +192,9 @@ class BehaviorFeatureExtractor {
     dynamic eventTypes,
   ) {
     if (eventTypes is BehaviorEventType) {
-      return events.where((e) => e.type == eventTypes).toList();
+      return events.where((e) => e.eventType == eventTypes).toList();
     } else if (eventTypes is List<BehaviorEventType>) {
-      return events.where((e) => eventTypes.contains(e.type)).toList();
+      return events.where((e) => eventTypes.contains(e.eventType)).toList();
     }
     return [];
   }
@@ -209,8 +209,8 @@ class BehaviorFeatureExtractor {
     int count = 0;
 
     for (final event in scrollEvents) {
-      // Try to get velocity from payload (could be int or double)
-      final velocityValue = event.payload['velocity'];
+      // Get velocity from metrics
+      final velocityValue = event.metrics['velocity'];
       if (velocityValue != null) {
         final velocity = (velocityValue is num)
             ? velocityValue.toDouble()
@@ -230,13 +230,22 @@ class BehaviorFeatureExtractor {
   }
 
   /// Compute idle ratio (proportion of time spent idle).
-  double _computeIdleRatio(List<BehaviorEvent> idleEvents, int windowMs) {
-    if (idleEvents.isEmpty) return 0.0;
+  /// In the new model, idle is computed from gaps between events.
+  double _computeIdleRatio(List<BehaviorEvent> events, int windowMs) {
+    if (events.length < 2) return 0.0;
 
+    // Compute gaps between consecutive events
     double totalIdleTime = 0.0;
-    for (final event in idleEvents) {
-      final idleSeconds = event.payload['idle_seconds'] as double? ?? 0.0;
-      totalIdleTime += idleSeconds * 1000; // Convert to milliseconds
+    for (int i = 1; i < events.length; i++) {
+      final prevTime =
+          DateTime.parse(events[i - 1].timestamp).millisecondsSinceEpoch;
+      final currTime =
+          DateTime.parse(events[i].timestamp).millisecondsSinceEpoch;
+      final gap = currTime - prevTime;
+      // Consider gaps > 2 seconds as idle
+      if (gap > 2000) {
+        totalIdleTime += gap - 2000; // Subtract the 2s threshold
+      }
     }
 
     return (totalIdleTime / windowMs).clamp(0.0, 1.0);
@@ -247,10 +256,14 @@ class BehaviorFeatureExtractor {
   double _computeBurstiness(List<BehaviorEvent> events, int windowMs) {
     if (events.length < 2) return 0.0;
 
-    // Compute inter-event intervals
+    // Compute inter-event intervals (parse ISO timestamps)
     final intervals = <int>[];
     for (int i = 1; i < events.length; i++) {
-      intervals.add(events[i].timestamp - events[i - 1].timestamp);
+      final prevTime =
+          DateTime.parse(events[i - 1].timestamp).millisecondsSinceEpoch;
+      final currTime =
+          DateTime.parse(events[i].timestamp).millisecondsSinceEpoch;
+      intervals.add(currTime - prevTime);
     }
 
     if (intervals.isEmpty) return 0.0;
@@ -272,17 +285,27 @@ class BehaviorFeatureExtractor {
   }
 
   /// Compute session fragmentation index.
+  /// In new model, fragmentation is computed from event gaps and notification/call interruptions.
   double _computeFragmentation(List<BehaviorEvent> events, int windowMs) {
     if (events.isEmpty) return 0.0;
 
-    // Count interruptions (idle gaps, app switches)
-    final interruptions = _countEvents(events, [
-      BehaviorEventType.idleGap,
-      BehaviorEventType.microIdle,
-      BehaviorEventType.midIdle,
-      BehaviorEventType.taskDropIdle,
-      BehaviorEventType.appSwitch,
-    ]);
+    // Count interruptions: notifications, calls, and large gaps between events
+    int interruptions = 0;
+
+    // Count notification and call events
+    interruptions += _countEvents(events, BehaviorEventType.notification);
+    interruptions += _countEvents(events, BehaviorEventType.call);
+
+    // Count large gaps (> 5 seconds) as interruptions
+    for (int i = 1; i < events.length; i++) {
+      final prevTime =
+          DateTime.parse(events[i - 1].timestamp).millisecondsSinceEpoch;
+      final currTime =
+          DateTime.parse(events[i].timestamp).millisecondsSinceEpoch;
+      if (currTime - prevTime > 5000) {
+        interruptions++;
+      }
+    }
 
     // Normalize by window duration (more interruptions = higher fragmentation)
     final windowMinutes = windowMs / (60 * 1000.0);
@@ -293,42 +316,39 @@ class BehaviorFeatureExtractor {
   }
 
   /// Compute typing cadence stability (consistency of typing rhythm).
+  /// In new model, compute from tap events (non-long-press taps).
   double _computeTypingCadenceStability(
     List<BehaviorEvent> events,
     int windowMs,
   ) {
-    final typingEvents = _filterEvents(events, [
-      BehaviorEventType.typingCadence,
-      BehaviorEventType.typingBurst,
-    ]);
+    final tapEvents = _filterEvents(events, BehaviorEventType.tap).where((e) {
+      final longPress = e.metrics['long_press'] as bool? ?? false;
+      return !longPress;
+    }).toList();
 
-    if (typingEvents.length < 2) {
+    if (tapEvents.length < 2) {
       return 0.0;
     }
 
-    // Extract inter-key latencies (could be int or double from native)
-    final latencies = <double>[];
-    for (final event in typingEvents) {
-      final latencyValue = event.payload['inter_key_latency'];
-      if (latencyValue != null) {
-        final latency = (latencyValue is num)
-            ? latencyValue.toDouble()
-            : (latencyValue as double?);
-        if (latency != null && latency > 0) {
-          latencies.add(latency);
-        }
-      }
+    // Extract inter-tap intervals from timestamps
+    final intervals = <int>[];
+    for (int i = 1; i < tapEvents.length; i++) {
+      final prevTime =
+          DateTime.parse(tapEvents[i - 1].timestamp).millisecondsSinceEpoch;
+      final currTime =
+          DateTime.parse(tapEvents[i].timestamp).millisecondsSinceEpoch;
+      intervals.add(currTime - prevTime);
     }
 
-    if (latencies.length < 2) {
+    if (intervals.length < 2) {
       return 0.0;
     }
 
     // Compute coefficient of variation (lower CV = more stable)
-    final mean = latencies.reduce((a, b) => a + b) / latencies.length;
+    final mean = intervals.reduce((a, b) => a + b) / intervals.length;
     final variance =
-        latencies.map((l) => (l - mean) * (l - mean)).reduce((a, b) => a + b) /
-            latencies.length;
+        intervals.map((l) => (l - mean) * (l - mean)).reduce((a, b) => a + b) /
+            intervals.length;
     final stdDev = variance > 0 ? math.sqrt(variance) : 0.0;
     final cv = mean > 0 ? stdDev / mean : 0.0;
 
@@ -344,15 +364,18 @@ class BehaviorFeatureExtractor {
     List<BehaviorEvent> events,
     int windowMs,
   ) {
-    final scrollEvents =
-        _filterEvents(events, BehaviorEventType.scrollVelocity);
+    final scrollEvents = _filterEvents(events, BehaviorEventType.scroll);
 
     if (scrollEvents.length < 2) return 0.0;
 
-    // Extract scroll intervals (time between scrolls)
+    // Extract scroll intervals (time between scrolls) - parse ISO timestamps
     final intervals = <int>[];
     for (int i = 1; i < scrollEvents.length; i++) {
-      intervals.add(scrollEvents[i].timestamp - scrollEvents[i - 1].timestamp);
+      final prevTime =
+          DateTime.parse(scrollEvents[i - 1].timestamp).millisecondsSinceEpoch;
+      final currTime =
+          DateTime.parse(scrollEvents[i].timestamp).millisecondsSinceEpoch;
+      intervals.add(currTime - prevTime);
     }
 
     if (intervals.length < 2) return 0.0;

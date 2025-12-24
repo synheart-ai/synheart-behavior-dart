@@ -7,8 +7,11 @@ class NotificationCollector: NSObject, UNUserNotificationCenterDelegate {
     
     private var config: BehaviorConfig
     private var eventHandler: ((BehaviorEvent) -> Void)?
-    private var receivedNotificationTimestamps: [Double] = []
+    private var receivedNotificationTimestamps: [String: Double] = [:] // notificationId -> timestamp
     private var openedNotificationTimestamps: [Double] = []
+    private let notificationIgnoredThresholdMs: Double = 30000.0 // 30 seconds
+    // Track pending delayed tasks so we can cancel them if notification is opened
+    private var pendingIgnoredTasks: [String: DispatchWorkItem] = [:] // notificationId -> DispatchWorkItem
     
     init(config: BehaviorConfig) {
         self.config = config
@@ -31,11 +34,7 @@ class NotificationCollector: NSObject, UNUserNotificationCenterDelegate {
         
         // Request notification permissions (if not already granted)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-            if granted {
-                print("NotificationCollector: Notification permission granted")
-            } else {
-                print("NotificationCollector: Notification permission denied")
-            }
+            // Permission request completed
         }
     }
     
@@ -47,9 +46,14 @@ class NotificationCollector: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        onNotificationReceived()
+        let notificationId = notification.request.identifier
+        onNotificationReceived(notificationId: notificationId)
         // Show notification even when app is in foreground
-        completionHandler([.banner, .sound, .badge])
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .sound, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
     }
     
     /// Called when user taps/opens a notification
@@ -58,34 +62,57 @@ class NotificationCollector: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        onNotificationOpened()
+        let notificationId = response.notification.request.identifier
+        onNotificationOpened(notificationId: notificationId)
         completionHandler()
     }
     
-    private func onNotificationReceived() {
+    private func onNotificationReceived(notificationId: String? = nil) {
         guard config.enableAttentionSignals else { return }
         
         let now = Date().timeIntervalSince1970 * 1000 // milliseconds
-        receivedNotificationTimestamps.append(now)
+        let id = notificationId ?? "notif_\(Int64(now))"
+        receivedNotificationTimestamps[id] = now
         
         // Keep only last 100 notifications
         if receivedNotificationTimestamps.count > 100 {
-            receivedNotificationTimestamps.removeFirst()
+            let oldest = receivedNotificationTimestamps.min(by: { $0.value < $1.value })?.key
+            oldest.map { receivedNotificationTimestamps.removeValue(forKey: $0) }
         }
-        
-        print("NotificationCollector: NOTIFICATION RECEIVED!")
         
         eventHandler?(BehaviorEvent(
             sessionId: "current",
-            timestamp: Int64(now),
-            type: "notificationReceived",
-            payload: [
-                "timestamp": now
+            eventType: "notification",
+            metrics: [
+                "action": "received"
             ]
         ))
+        
+        // Schedule check for ignored notification (30 seconds)
+        // Store the DispatchWorkItem so we can cancel it if the notification is opened
+        let ignoredTask = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            if self.receivedNotificationTimestamps.keys.contains(id) {
+                // Notification was not opened within 30 seconds, mark as ignored
+                self.receivedNotificationTimestamps.removeValue(forKey: id)
+                self.pendingIgnoredTasks.removeValue(forKey: id) // Clean up
+                self.eventHandler?(BehaviorEvent(
+                    sessionId: "current",
+                    eventType: "notification",
+                    metrics: [
+                        "action": "ignored"
+                    ]
+                ))
+            } else {
+                // Notification was opened, just clean up
+                self.pendingIgnoredTasks.removeValue(forKey: id)
+            }
+        }
+        pendingIgnoredTasks[id] = ignoredTask
+        DispatchQueue.main.asyncAfter(deadline: .now() + notificationIgnoredThresholdMs / 1000.0, execute: ignoredTask)
     }
     
-    private func onNotificationOpened() {
+    private func onNotificationOpened(notificationId: String? = nil) {
         guard config.enableAttentionSignals else { return }
         
         let now = Date().timeIntervalSince1970 * 1000 // milliseconds
@@ -96,21 +123,33 @@ class NotificationCollector: NSObject, UNUserNotificationCenterDelegate {
             openedNotificationTimestamps.removeFirst()
         }
         
-        print("NotificationCollector: NOTIFICATION OPENED!")
+        // Cancel the pending "ignored" task if notification is opened before 30 seconds
+        if let id = notificationId {
+            // Remove from received list
+            receivedNotificationTimestamps.removeValue(forKey: id)
+            
+            // Cancel the delayed "ignored" task if it exists
+            if let task = pendingIgnoredTasks[id] {
+                task.cancel()
+                pendingIgnoredTasks.removeValue(forKey: id)
+            }
+        }
         
         eventHandler?(BehaviorEvent(
             sessionId: "current",
-            timestamp: Int64(now),
-            type: "notificationOpened",
-            payload: [
-                "timestamp": now
+            eventType: "notification",
+            metrics: [
+                "action": "opened"
             ]
         ))
     }
     
     func dispose() {
+        // Cancel all pending tasks
+        pendingIgnoredTasks.values.forEach { $0.cancel() }
         receivedNotificationTimestamps.removeAll()
         openedNotificationTimestamps.removeAll()
+        pendingIgnoredTasks.removeAll()
         UNUserNotificationCenter.current().delegate = nil
     }
 }

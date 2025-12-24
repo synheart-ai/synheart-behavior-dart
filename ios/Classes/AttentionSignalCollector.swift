@@ -131,56 +131,23 @@ class AttentionSignalCollector {
         }
     }
 
+    // App switches are tracked in session data, not emitted as events
+    // These methods are kept for internal tracking but don't emit events
     private func emitAppSwitch(direction: String, duration: Double) {
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            type: "appSwitch",
-            payload: [
-                "direction": direction,
-                "previous_duration_ms": duration,
-                "switch_count": appSwitchCount
-            ]
-        ))
+        // App switches are tracked in session data, not as separate events
+        // The appSwitchCount is already being tracked
     }
 
     private func emitForegroundDuration(duration: Double) {
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            type: "foregroundDuration",
-            payload: [
-                "duration_ms": duration,
-                "duration_seconds": duration / 1000.0
-            ]
-        ))
+        // Foreground duration is computed from session data, not emitted as events
     }
 
     private func emitSessionStability() {
-        let now = Date().timeIntervalSince1970 * 1000
-        let totalSessionDuration = now - sessionStartTime
-        let sessionMinutes = totalSessionDuration / 60000.0
-
-        guard sessionMinutes > 0 else { return }
-
-        // Stability index: higher is more stable (fewer switches)
-        let stabilityIndex = max(0.0, min(1.0, 1.0 - (Double(appSwitchCount) / (sessionMinutes * 10.0))))
-
-        // Fragmentation index: based on background/foreground ratio
-        let foregroundRatio = totalSessionDuration > 0 ? totalForegroundTime / totalSessionDuration : 1.0
-        let fragmentationIndex = max(0.0, min(1.0, 1.0 - foregroundRatio))
-
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(now),
-            type: "sessionStability",
-            payload: [
-                "stability_index": stabilityIndex,
-                "fragmentation_index": fragmentationIndex,
-                "app_switches": appSwitchCount,
-                "session_minutes": sessionMinutes,
-                "foreground_ratio": foregroundRatio
-            ]
-        ))
+        // Session stability is computed in session summary, not emitted as events
+    }
+    
+    // Expose app switch count for session tracking
+    func getAppSwitchCount() -> Int {
+        return appSwitchCount
     }
 }

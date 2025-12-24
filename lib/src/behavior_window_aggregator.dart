@@ -18,12 +18,14 @@ class WindowAggregator {
   /// Events in the long window (5m).
   final Queue<BehaviorEvent> _longWindowEvents = Queue<BehaviorEvent>();
 
-  /// Current time for window boundary calculations.
+  /// Current time for window boundary calculations (milliseconds since epoch).
   int _currentTime = DateTime.now().millisecondsSinceEpoch;
 
   /// Add a new event to both windows.
   void addEvent(BehaviorEvent event) {
-    _currentTime = event.timestamp;
+    // Parse ISO timestamp to milliseconds
+    final eventTime = DateTime.parse(event.timestamp).millisecondsSinceEpoch;
+    _currentTime = eventTime;
 
     // Add to short window
     _shortWindowEvents.add(event);
@@ -69,8 +71,13 @@ class WindowAggregator {
   /// Remove events older than the window duration.
   void _pruneOldEvents(Queue<BehaviorEvent> events, int windowDurationMs) {
     final cutoffTime = _currentTime - windowDurationMs;
-    while (events.isNotEmpty && events.first.timestamp < cutoffTime) {
-      events.removeFirst();
+    while (events.isNotEmpty) {
+      final eventTime = DateTime.parse(events.first.timestamp).millisecondsSinceEpoch;
+      if (eventTime < cutoffTime) {
+        events.removeFirst();
+      } else {
+        break;
+      }
     }
   }
 

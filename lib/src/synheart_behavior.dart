@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter/material.dart';
 import 'models/behavior_config.dart';
 import 'models/behavior_event.dart';
@@ -42,11 +41,13 @@ class SynheartBehavior {
     // Replace "current" session ID if needed
     var eventWithSessionId = event;
     if (event.sessionId == "current" && _currentSessionId != null) {
+      // Create new event with correct session ID
       eventWithSessionId = BehaviorEvent(
+        eventId: event.eventId,
         sessionId: _currentSessionId!,
-        timestamp: event.timestamp,
-        type: event.type,
-        payload: event.payload,
+        timestamp: DateTime.parse(event.timestamp),
+        eventType: event.eventType,
+        metrics: event.metrics,
       );
     }
 
@@ -63,9 +64,7 @@ class SynheartBehavior {
   ///
   /// This method must be called before using any other SDK methods.
   /// It sets up the native platform channels and starts collecting behavioral signals.
-  static Future<SynheartBehavior> initialize({
-    BehaviorConfig? config,
-  }) async {
+  static Future<SynheartBehavior> initialize({BehaviorConfig? config}) async {
     final behavior = SynheartBehavior._(config ?? const BehaviorConfig());
 
     try {
@@ -107,32 +106,61 @@ class SynheartBehavior {
   Stream<BehaviorWindowFeatures> get onLongWindowFeatures =>
       _longWindowController.stream;
 
+  /// Convert nested Map<dynamic, dynamic> to Map<String, dynamic> recursively
+  Map<String, dynamic> _convertMap(Map<dynamic, dynamic> map) {
+    return map.map((key, value) {
+      if (value is Map) {
+        return MapEntry(
+          key.toString(),
+          _convertMap(value as Map<dynamic, dynamic>),
+        );
+      } else if (value is List) {
+        return MapEntry(
+          key.toString(),
+          value.map((item) {
+            if (item is Map) {
+              return _convertMap(item as Map<dynamic, dynamic>);
+            }
+            return item;
+          }).toList(),
+        );
+      }
+      return MapEntry(key.toString(), value);
+    });
+  }
+
   /// Handle method calls from the native platform.
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     switch (call.method) {
       case 'onEvent':
         final eventData = call.arguments as Map<dynamic, dynamic>;
-        var event = BehaviorEvent.fromJson(
-          Map<String, dynamic>.from(eventData),
-        );
 
-        // Replace "current" session ID with actual session ID if available
-        // If no session is active, still add events (they'll be associated when session starts)
-        if (event.sessionId == "current") {
-          if (_currentSessionId != null) {
-            event = BehaviorEvent(
-              sessionId: _currentSessionId!,
-              timestamp: event.timestamp,
-              type: event.type,
-              payload: event.payload,
-            );
+        try {
+          // Convert the entire map structure properly, handling nested maps
+          final convertedData = _convertMap(eventData);
+          var event = BehaviorEvent.fromJson(convertedData);
+
+          // Replace "current" session ID with actual session ID if available
+          // If no session is active, still add events (they'll be associated when session starts)
+          if (event.sessionId == "current") {
+            if (_currentSessionId != null) {
+              event = BehaviorEvent(
+                eventId: event.eventId,
+                sessionId: _currentSessionId!,
+                timestamp: DateTime.parse(event.timestamp),
+                eventType: event.eventType,
+                metrics: event.metrics,
+              );
+            }
+            // Even if no session, add events to window (they'll be used when session starts)
           }
-          // Even if no session, add events to window (they'll be used when session starts)
-        }
 
-        _eventController.add(event);
-        // Always add to window aggregator (events are time-based, not session-based)
-        _windowAggregator.addEvent(event);
+          _eventController.add(event);
+          // Always add to window aggregator (events are time-based, not session-based)
+          _windowAggregator.addEvent(event);
+        } catch (e, stackTrace) {
+          // Silently handle parsing errors to avoid console spam
+        }
         break;
       default:
         throw PlatformException(
@@ -153,12 +181,14 @@ class SynheartBehavior {
       );
     }
 
-    final sessionIdToUse = sessionId ??
+    final sessionIdToUse =
+        sessionId ??
         '${_config.sessionIdPrefix ?? 'SESS'}-${DateTime.now().millisecondsSinceEpoch}';
 
     try {
-      await _channel
-          .invokeMethod('startSession', {'sessionId': sessionIdToUse});
+      await _channel.invokeMethod('startSession', {
+        'sessionId': sessionIdToUse,
+      });
       _currentSessionId = sessionIdToUse;
 
       final session = BehaviorSession(
@@ -176,6 +206,10 @@ class SynheartBehavior {
 
   /// End a session by its ID and return summary.
   Future<BehaviorSessionSummary> _endSession(String sessionId) async {
+    print('SDK _endSession called with sessionId: $sessionId');
+    print('_initialized: $_initialized');
+    print('_activeSessions keys: ${_activeSessions.keys.toList()}');
+
     if (!_initialized) {
       throw Exception(
         'SDK not initialized. Call SynheartBehavior.initialize() first.',
@@ -183,18 +217,34 @@ class SynheartBehavior {
     }
 
     try {
-      final result = await _channel.invokeMethod('endSession', {
-        'sessionId': sessionId,
-      });
+      print('Calling native endSession with sessionId: $sessionId');
+      final result = await _channel
+          .invokeMethod('endSession', {'sessionId': sessionId})
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw Exception('endSession timed out after 10 seconds');
+            },
+          );
+      print('Native endSession returned: ${result.runtimeType}');
+      if (result == null) {
+        throw Exception('Native endSession returned null');
+      }
 
       final session = _activeSessions[sessionId];
       if (session == null) {
+        print('ERROR: Session not found in _activeSessions: $sessionId');
         throw Exception('Session not found: $sessionId');
       }
 
-      final summary = BehaviorSessionSummary.fromJson(
-        Map<String, dynamic>.from(result as Map),
-      );
+      // Ensure result is properly converted to Map<String, dynamic>
+      final resultMap = result is Map
+          ? Map<String, dynamic>.from(result as Map)
+          : throw Exception('Invalid result type: ${result.runtimeType}');
+
+      print('Parsing summary from resultMap...');
+      final summary = BehaviorSessionSummary.fromJson(resultMap);
+      print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
       _activeSessions.remove(sessionId);
       if (_currentSessionId == sessionId) {
@@ -202,7 +252,9 @@ class SynheartBehavior {
       }
 
       return summary;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('Error ending session: $e');
+      print('Stack trace: $stackTrace');
       throw Exception('Failed to end session: $e');
     }
   }
@@ -219,9 +271,7 @@ class SynheartBehavior {
 
     try {
       final result = await _channel.invokeMethod('getCurrentStats');
-      return BehaviorStats.fromJson(
-        Map<String, dynamic>.from(result as Map),
-      );
+      return BehaviorStats.fromJson(Map<String, dynamic>.from(result as Map));
     } catch (e) {
       throw Exception('Failed to get current stats: $e');
     }
@@ -278,11 +328,50 @@ class SynheartBehavior {
     }
 
     try {
-      final result =
-          await _channel.invokeMethod('requestNotificationPermission');
+      final result = await _channel.invokeMethod(
+        'requestNotificationPermission',
+      );
       return result as bool? ?? false;
     } catch (e) {
       throw Exception('Failed to request notification permission: $e');
+    }
+  }
+
+  /// Check if call permission is granted.
+  ///
+  /// Returns `true` if phone state permission is granted, `false` otherwise.
+  /// On Android, this checks if READ_PHONE_STATE permission is granted.
+  /// On iOS, call monitoring doesn't require explicit permission.
+  Future<bool> checkCallPermission() async {
+    if (!_initialized) {
+      throw Exception(
+        'SDK not initialized. Call SynheartBehavior.initialize() first.',
+      );
+    }
+
+    try {
+      final result = await _channel.invokeMethod('checkCallPermission');
+      return result as bool? ?? false;
+    } catch (e) {
+      throw Exception('Failed to check call permission: $e');
+    }
+  }
+
+  /// Request call permission.
+  ///
+  /// On Android, this requests READ_PHONE_STATE permission at runtime.
+  /// On iOS, call monitoring doesn't require explicit permission.
+  Future<void> requestCallPermission() async {
+    if (!_initialized) {
+      throw Exception(
+        'SDK not initialized. Call SynheartBehavior.initialize() first.',
+      );
+    }
+
+    try {
+      await _channel.invokeMethod('requestCallPermission');
+    } catch (e) {
+      throw Exception('Failed to request call permission: $e');
     }
   }
 
@@ -325,6 +414,35 @@ class SynheartBehavior {
     }
   }
 
+  /// Send an event from Dart to the native SDK.
+  /// This is used by BehaviorGestureDetector to send Flutter gesture events
+  /// to the native SDK for storage in session data.
+  Future<void> sendEvent(BehaviorEvent event) async {
+    if (!_initialized) {
+      throw Exception(
+        'SDK not initialized. Call SynheartBehavior.initialize() first.',
+      );
+    }
+
+    try {
+      // Replace "current" session ID with actual session ID if available
+      final eventToSend =
+          event.sessionId == "current" && _currentSessionId != null
+          ? BehaviorEvent(
+              eventId: event.eventId,
+              sessionId: _currentSessionId!,
+              timestamp: DateTime.parse(event.timestamp),
+              eventType: event.eventType,
+              metrics: event.metrics,
+            )
+          : event;
+
+      await _channel.invokeMethod('sendEvent', eventToSend.toJson());
+    } catch (e) {
+      throw Exception('Failed to send event to native SDK: $e');
+    }
+  }
+
   /// Check if the SDK is currently initialized.
   bool get isInitialized => _initialized;
 
@@ -337,14 +455,15 @@ class SynheartBehavior {
   /// so native touch listeners won't capture Flutter interactions.
   Widget wrapWithGestureDetector(Widget child) {
     return BehaviorGestureDetector(
+      sessionId: _currentSessionId ?? "current",
       onEvent: _handleFlutterEvent,
       child: child,
     );
   }
 
-  /// Get a TextField that detects keystrokes for behavior tracking.
+  /// Get a TextField for behavior tracking.
   ///
-  /// Use this instead of regular TextField to track typing behavior.
+  /// Text input interactions are captured as tap events.
   Widget createBehaviorTextField({
     TextEditingController? controller,
     InputDecoration? decoration,
@@ -354,7 +473,6 @@ class SynheartBehavior {
       controller: controller,
       decoration: decoration,
       maxLines: maxLines,
-      onEvent: _handleFlutterEvent,
     );
   }
 
@@ -405,8 +523,9 @@ class SynheartBehavior {
 
   /// Generate a device ID based on platform.
   static String _generateDeviceId() {
-    final platform =
-        Platform.isAndroid ? 'android' : (Platform.isIOS ? 'ios' : 'unknown');
+    final platform = Platform.isAndroid
+        ? 'android'
+        : (Platform.isIOS ? 'ios' : 'unknown');
     // In production, you might want to use device_info_plus package for more details
     return 'synheart_${platform}_${Platform.operatingSystemVersion.split(' ').first}';
   }
@@ -416,27 +535,24 @@ class SynheartBehavior {
   /// Start periodic window feature updates.
   void _startWindowUpdates() {
     // Update short window every 5 seconds, long window every 30 seconds
-    _windowUpdateTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) {
-        if (!_initialized) return;
+    _windowUpdateTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!_initialized) return;
 
-        // Always update short window
-        final shortFeatures = getWindowFeatures(WindowType.short);
-        if (shortFeatures != null) {
-          _shortWindowController.add(shortFeatures);
-        }
+      // Always update short window
+      final shortFeatures = getWindowFeatures(WindowType.short);
+      if (shortFeatures != null) {
+        _shortWindowController.add(shortFeatures);
+      }
 
-        // Update long window every 30 seconds (every 6th update)
-        _longWindowUpdateCounter++;
-        if (_longWindowUpdateCounter >= 6) {
-          _longWindowUpdateCounter = 0;
-          final longFeatures = getWindowFeatures(WindowType.long);
-          if (longFeatures != null) {
-            _longWindowController.add(longFeatures);
-          }
+      // Update long window every 30 seconds (every 6th update)
+      _longWindowUpdateCounter++;
+      if (_longWindowUpdateCounter >= 6) {
+        _longWindowUpdateCounter = 0;
+        final longFeatures = getWindowFeatures(WindowType.long);
+        if (longFeatures != null) {
+          _longWindowController.add(longFeatures);
         }
-      },
-    );
+      }
+    });
   }
 }

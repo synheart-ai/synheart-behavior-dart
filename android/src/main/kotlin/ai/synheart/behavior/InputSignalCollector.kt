@@ -5,6 +5,7 @@ import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import java.time.Instant
 import java.util.LinkedList
 
 /**
@@ -121,64 +122,32 @@ class InputSignalCollector(private var config: BehaviorConfig) {
         lastKeystrokeTime = now
     }
 
+    private fun getIsoTimestamp(): String {
+        return Instant.now().toString()
+    }
+
     private fun emitTypingCadence(interKeyLatency: Long) {
-        // Calculate rolling cadence (keys per second)
-        val recentKeys = keystrokeTimestamps.filter { it > System.currentTimeMillis() - 5000 }
-        val cadence =
-                if (recentKeys.size > 1) {
-                    val timeSpan = recentKeys.last() - recentKeys.first()
-                    if (timeSpan > 0) (recentKeys.size - 1) * 1000.0 / timeSpan else 0.0
-                } else {
-                    0.0
-                }
+        // In new model, keystrokes are tracked as tap events
+        // Estimate tap duration (typically 50-150ms for keyboard taps)
+        val estimatedTapDuration = interKeyLatency.coerceIn(50, 150).toInt()
 
         eventHandler?.invoke(
                 BehaviorEvent(
                         sessionId = "current", // Will be set by SDK
-                        timestamp = System.currentTimeMillis(),
-                        type = "typingCadence",
-                        payload =
+                        timestamp = getIsoTimestamp(),
+                        eventType = "tap",
+                        metrics =
                                 mapOf(
-                                        "cadence" to cadence,
-                                        "inter_key_latency" to interKeyLatency,
-                                        "keys_in_window" to recentKeys.size
+                                        "tap_duration_ms" to estimatedTapDuration,
+                                        "long_press" to false
                                 )
                 )
         )
     }
 
     private fun emitTypingBurst(burstLength: Int) {
-        if (burstLength < 3) return // Only emit significant bursts
-
-        val recentLatencies = mutableListOf<Long>()
-        for (i in 1 until keystrokeTimestamps.size.coerceAtMost(burstLength)) {
-            recentLatencies.add(keystrokeTimestamps[i] - keystrokeTimestamps[i - 1])
-        }
-
-        val avgLatency =
-                if (recentLatencies.isNotEmpty()) {
-                    recentLatencies.average()
-                } else 0.0
-
-        val variance =
-                if (recentLatencies.size > 1) {
-                    val mean = recentLatencies.average()
-                    recentLatencies.map { (it - mean) * (it - mean) }.average()
-                } else 0.0
-
-        eventHandler?.invoke(
-                BehaviorEvent(
-                        sessionId = "current",
-                        timestamp = System.currentTimeMillis(),
-                        type = "typingBurst",
-                        payload =
-                                mapOf(
-                                        "burst_length" to burstLength,
-                                        "inter_key_latency" to avgLatency,
-                                        "variance" to variance
-                                )
-                )
-        )
+        // Bursts are now tracked as individual tap events
+        // No need to emit separate burst events
     }
 
     fun dispose() {

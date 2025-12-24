@@ -30,46 +30,50 @@ class StatsCollector {
             }
 
             // Update metrics based on event type
-            switch event.type {
+            switch event.eventType {
             case "typingCadence":
-                self.latestTypingCadence = event.payload["cadence"] as? Double
-                self.latestInterKeyLatency = event.payload["inter_key_latency"] as? Double
+                self.latestTypingCadence = event.metrics["cadence"] as? Double
+                self.latestInterKeyLatency = event.metrics["inter_key_latency"] as? Double
 
             case "typingBurst":
-                self.latestBurstLength = event.payload["burst_length"] as? Int
-                self.latestInterKeyLatency = event.payload["inter_key_latency"] as? Double
+                self.latestBurstLength = event.metrics["burst_length"] as? Int
+                self.latestInterKeyLatency = event.metrics["inter_key_latency"] as? Double
 
             case "scrollVelocity":
-                self.latestScrollVelocity = event.payload["velocity"] as? Double
+                self.latestScrollVelocity = event.metrics["velocity"] as? Double
 
             case "scrollAcceleration":
-                self.latestScrollAcceleration = event.payload["acceleration"] as? Double
+                self.latestScrollAcceleration = event.metrics["acceleration"] as? Double
 
             case "scrollJitter":
-                self.latestScrollJitter = event.payload["jitter"] as? Double
+                self.latestScrollJitter = event.metrics["jitter"] as? Double
 
             case "tapRate":
-                self.latestTapRate = event.payload["tap_rate"] as? Double
+                self.latestTapRate = event.metrics["tap_rate"] as? Double
 
             case "foregroundDuration":
-                if let durationSeconds = event.payload["duration_seconds"] as? Double {
+                if let durationSeconds = event.metrics["duration_seconds"] as? Double {
                     self.latestForegroundDuration = durationSeconds
-                } else if let durationMs = event.payload["duration_ms"] as? Double {
+                } else if let durationMs = event.metrics["duration_ms"] as? Double {
                     self.latestForegroundDuration = durationMs / 1000.0
                 }
 
             case "idleGap":
-                if let idleSeconds = event.payload["idle_seconds"] as? Double {
+                if let idleSeconds = event.metrics["idle_seconds"] as? Double {
                     self.latestIdleGapSeconds = idleSeconds
                 }
 
             case "sessionStability":
-                self.latestStabilityIndex = event.payload["stability_index"] as? Double
-                self.latestFragmentationIndex = event.payload["fragmentation_index"] as? Double
+                self.latestStabilityIndex = event.metrics["stability_index"] as? Double
+                self.latestFragmentationIndex = event.metrics["fragmentation_index"] as? Double
 
             case "appSwitch":
-                let timestamp = Double(event.timestamp)
-                self.appSwitchTimestamps.append(timestamp)
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = formatter.date(from: event.timestamp) {
+                    let timestamp = date.timeIntervalSince1970 * 1000
+                    self.appSwitchTimestamps.append(timestamp)
+                }
 
                 // Keep only last minute
                 let cutoff = Date().timeIntervalSince1970 * 1000 - 60000
