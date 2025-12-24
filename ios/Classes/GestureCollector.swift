@@ -79,18 +79,21 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
         // Tap gesture
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tapGesture.delegate = self
+        tapGesture.cancelsTouchesInView = false
         view.addGestureRecognizer(tapGesture)
         tapRecognizers.append(tapGesture)
 
         // Long press gesture
         let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPressGesture.delegate = self
+        longPressGesture.cancelsTouchesInView = false
         view.addGestureRecognizer(longPressGesture)
         longPressRecognizers.append(longPressGesture)
 
         // Pan gesture for drag detection
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         panGesture.delegate = self
+        panGesture.cancelsTouchesInView = false
         view.addGestureRecognizer(panGesture)
         panRecognizers.append(panGesture)
     }
