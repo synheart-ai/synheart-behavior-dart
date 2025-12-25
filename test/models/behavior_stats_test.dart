@@ -4,7 +4,7 @@ import 'package:synheart_behavior/synheart_behavior.dart';
 void main() {
   group('BehaviorStats', () {
     test('creates with all fields', () {
-      final stats = BehaviorStats(
+      const stats = BehaviorStats(
         typingCadence: 2.5,
         interKeyLatency: 100.0,
         burstLength: 5,
@@ -77,7 +77,7 @@ void main() {
     });
 
     test('toJson converts correctly', () {
-      final stats = BehaviorStats(
+      const stats = BehaviorStats(
         typingCadence: 2.5,
         scrollVelocity: 150.0,
         appSwitchesPerMinute: 3,

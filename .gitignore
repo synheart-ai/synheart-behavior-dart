@@ -80,6 +80,7 @@ coverage/
 note.md
 note-2.md
 metrics.md
+PERMISSIONS_DATA_MATRIX.md
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3

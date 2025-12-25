@@ -59,7 +59,7 @@ class BehaviorFeatureExtractor {
 
     // App switches: In new model, these might be tracked differently
     // For now, we'll need to add app switch tracking separately
-    final switchCount = 0; // TODO: Add app switch event type if needed
+    const switchCount = 0; // TODO: Add app switch event type if needed
 
     // Separate notification counting
     final notificationEvents =

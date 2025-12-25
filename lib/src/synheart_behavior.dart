@@ -112,14 +112,14 @@ class SynheartBehavior {
       if (value is Map) {
         return MapEntry(
           key.toString(),
-          _convertMap(value as Map<dynamic, dynamic>),
+          _convertMap(value),
         );
       } else if (value is List) {
         return MapEntry(
           key.toString(),
           value.map((item) {
             if (item is Map) {
-              return _convertMap(item as Map<dynamic, dynamic>);
+              return _convertMap(item);
             }
             return item;
           }).toList(),
@@ -158,7 +158,7 @@ class SynheartBehavior {
           _eventController.add(event);
           // Always add to window aggregator (events are time-based, not session-based)
           _windowAggregator.addEvent(event);
-        } catch (e, stackTrace) {
+        } catch (e) {
           // Silently handle parsing errors to avoid console spam
         }
         break;
@@ -206,9 +206,9 @@ class SynheartBehavior {
 
   /// End a session by its ID and return summary.
   Future<BehaviorSessionSummary> _endSession(String sessionId) async {
-    print('SDK _endSession called with sessionId: $sessionId');
-    print('_initialized: $_initialized');
-    print('_activeSessions keys: ${_activeSessions.keys.toList()}');
+    // print('SDK _endSession called with sessionId: $sessionId');
+    // print('_initialized: $_initialized');
+    // print('_activeSessions keys: ${_activeSessions.keys.toList()}');
 
     if (!_initialized) {
       throw Exception(
@@ -217,7 +217,7 @@ class SynheartBehavior {
     }
 
     try {
-      print('Calling native endSession with sessionId: $sessionId');
+      // print('Calling native endSession with sessionId: $sessionId');
       final result = await _channel
           .invokeMethod('endSession', {'sessionId': sessionId})
           .timeout(
@@ -226,25 +226,25 @@ class SynheartBehavior {
               throw Exception('endSession timed out after 10 seconds');
             },
           );
-      print('Native endSession returned: ${result.runtimeType}');
+      // print('Native endSession returned: ${result.runtimeType}');
       if (result == null) {
         throw Exception('Native endSession returned null');
       }
 
       final session = _activeSessions[sessionId];
       if (session == null) {
-        print('ERROR: Session not found in _activeSessions: $sessionId');
+        // print('ERROR: Session not found in _activeSessions: $sessionId');
         throw Exception('Session not found: $sessionId');
       }
 
       // Ensure result is properly converted to Map<String, dynamic>
       final resultMap = result is Map
-          ? Map<String, dynamic>.from(result as Map)
+          ? Map<String, dynamic>.from(result)
           : throw Exception('Invalid result type: ${result.runtimeType}');
 
-      print('Parsing summary from resultMap...');
+      // print('Parsing summary from resultMap...');
       final summary = BehaviorSessionSummary.fromJson(resultMap);
-      print('Summary parsed successfully. Session ID: ${summary.sessionId}');
+      // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
       _activeSessions.remove(sessionId);
       if (_currentSessionId == sessionId) {
@@ -253,9 +253,9 @@ class SynheartBehavior {
 
       return summary;
     } catch (e, stackTrace) {
-      print('Error ending session: $e');
+      // print('Error ending session: $e');
       print('Stack trace: $stackTrace');
-      throw Exception('Failed to end session: $e');
+      throw Exception('Failed to end session: $e ');
     }
   }
 

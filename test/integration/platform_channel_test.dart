@@ -25,27 +25,67 @@ void main() {
           // Simulate some events being emitted after session starts
           Future.delayed(const Duration(milliseconds: 10), () {
             _sendEvent(channel, {
-              'session_id': methodCall.arguments['sessionId'],
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
-              'type': 'typingCadence',
-              'payload': {'cadence': 2.5, 'inter_key_latency': 100.0},
+              'event': {
+                'event_id': 'evt_1',
+                'session_id': methodCall.arguments['sessionId'],
+                'timestamp': DateTime.now().toUtc().toIso8601String(),
+                'event_type': 'tap',
+                'metrics': {
+                  'tap_duration_ms': 150,
+                  'long_press': false,
+                },
+              },
             });
           });
           return null;
 
         case 'endSession':
           final sessionId = methodCall.arguments['sessionId'] as String;
+          final now = DateTime.now();
+          final startTime = now.subtract(const Duration(seconds: 60));
           return {
             'session_id': sessionId,
-            'start_timestamp': DateTime.now().millisecondsSinceEpoch - 60000,
-            'end_timestamp': DateTime.now().millisecondsSinceEpoch,
-            'duration': 60000,
-            'event_count': receivedEvents.length,
-            'average_typing_cadence': 2.5,
-            'average_scroll_velocity': 150.0,
-            'app_switch_count': 1,
-            'stability_index': 0.9,
-            'fragmentation_index': 0.1,
+            'start_at': startTime.toUtc().toIso8601String(),
+            'end_at': now.toUtc().toIso8601String(),
+            'micro_session': false,
+            'OS': 'Android 12',
+            'session_spacing': 0,
+            'device_context': {
+              'avg_screen_brightness': 0.5,
+              'start_orientation': 'portrait',
+              'orientation_changes': 0,
+            },
+            'activity_summary': {
+              'total_events': receivedEvents.length,
+              'app_switch_count': 1,
+            },
+            'behavioral_metrics': {
+              'interaction_intensity': 0.5,
+              'task_switch_rate': 0.2,
+              'task_switch_cost': 100,
+              'idle_time_ratio': 0.1,
+              'active_time_ratio': 0.9,
+              'notification_load': 0.0,
+              'burstiness': 0.3,
+              'behavioral_distraction_score': 0.2,
+              'focus_hint': 0.8,
+              'fragmented_idle_ratio': 0.1,
+              'scroll_jitter_rate': 0.05,
+              'deep_focus_blocks': [],
+            },
+            'notification_summary': {
+              'notification_count': 0,
+              'notification_ignored': 0,
+              'notification_ignore_rate': 0.0,
+              'notification_clustering_index': 0.0,
+              'call_count': 0,
+              'call_ignored': 0,
+            },
+            'system_state': {
+              'internet_state': true,
+              'do_not_disturb': false,
+              'charging': false,
+            },
           };
 
         case 'getCurrentStats':
@@ -131,8 +171,8 @@ void main() {
 
       expect(methodCalls.any((call) => call.method == 'endSession'), true);
       expect(summary.sessionId, 'test-session');
-      expect(summary.duration, 60000);
-      expect(summary.stabilityIndex, 0.9);
+      expect(summary.durationMs, greaterThanOrEqualTo(59000));
+      expect(summary.behavioralMetrics.focusHint, 0.8);
     });
 
     test('getCurrentStats retrieves stats from platform', () async {
@@ -182,24 +222,38 @@ void main() {
 
       // Simulate events from platform
       await _sendEvent(channel, {
-        'session_id': 'test-session',
-        'timestamp': 1000,
-        'type': 'typingCadence',
-        'payload': {'cadence': 2.5},
+        'event': {
+          'event_id': 'evt_1',
+          'session_id': 'test-session',
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+          'event_type': 'tap',
+          'metrics': {
+            'tap_duration_ms': 150,
+            'long_press': false,
+          },
+        },
       });
 
       await _sendEvent(channel, {
-        'session_id': 'test-session',
-        'timestamp': 2000,
-        'type': 'scrollVelocity',
-        'payload': {'velocity': 150.0},
+        'event': {
+          'event_id': 'evt_2',
+          'session_id': 'test-session',
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+          'event_type': 'scroll',
+          'metrics': {
+            'velocity': 150.0,
+            'acceleration': 50.0,
+            'direction': 'down',
+            'direction_reversal': false,
+          },
+        },
       });
 
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(events.length, 2);
-      expect(events[0].type, BehaviorEventType.typingCadence);
-      expect(events[1].type, BehaviorEventType.scrollVelocity);
+      expect(events[0].eventType, BehaviorEventType.tap);
+      expect(events[1].eventType, BehaviorEventType.scroll);
     });
 
     test('handles platform exceptions gracefully', () async {
@@ -240,7 +294,7 @@ void main() {
       // End session
       final summary = await session.end();
       expect(summary.sessionId, 'e2e-session');
-      expect(summary.eventCount, receivedEvents.length);
+      expect(summary.activitySummary.totalEvents, receivedEvents.length);
       expect(behavior.currentSessionId, isNull);
     });
 

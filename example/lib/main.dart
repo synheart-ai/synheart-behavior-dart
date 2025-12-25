@@ -40,7 +40,9 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
   List<BehaviorEvent> _events = [];
   List<BehaviorEvent> _sessionEvents =
       []; // Events collected during current session
+  // ignore: unused_field
   BehaviorWindowFeatures? _shortWindowFeatures;
+  // ignore: unused_field
   BehaviorWindowFeatures? _longWindowFeatures;
   bool _isInitialized = false;
   bool _isSessionActive = false;
