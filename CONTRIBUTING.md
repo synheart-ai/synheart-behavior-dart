@@ -6,8 +6,8 @@ Thank you for your interest in contributing to the Synheart Behavioral SDK!
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/synheart-ai/synheart-behavior-flutter.git
-cd synheart-behavior-flutter
+git clone https://github.com/synheart-ai/synheart-behavior-dart.git
+cd synheart-behavior-dart
 ```
 
 2. Install dependencies:
