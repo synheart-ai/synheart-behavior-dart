@@ -30,7 +30,24 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        
+        <!-- Notification Listener Service for detecting notifications -->
+        <service
+            android:name="ai.synheart.behavior.SynheartNotificationListenerService"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
+    
+    <!-- Permission for notification listener service -->
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
+    <!-- Permission for checking network connectivity state -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Permission for detecting phone call state -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

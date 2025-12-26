@@ -1,11 +1,9 @@
 package ai.synheart.behavior
 
-import java.util.concurrent.ConcurrentHashMap
+import java.time.Instant
 import java.util.LinkedList
 
-/**
- * Collects and maintains rolling statistics for behavioral signals.
- */
+/** Collects and maintains rolling statistics for behavioral signals. */
 class StatsCollector {
 
     private val recentEvents = LinkedList<BehaviorEvent>()
@@ -33,45 +31,38 @@ class StatsCollector {
             recentEvents.removeFirst()
         }
 
-        // Update metrics based on event type
-        when (event.type) {
-            "typingCadence" -> {
-                latestTypingCadence = event.payload["cadence"] as? Double
-                latestInterKeyLatency = event.payload["inter_key_latency"] as? Double
-            }
-            "typingBurst" -> {
-                latestBurstLength = event.payload["burst_length"] as? Int
-                latestInterKeyLatency = event.payload["inter_key_latency"] as? Double
-            }
-            "scrollVelocity" -> {
-                latestScrollVelocity = event.payload["velocity"] as? Double
-            }
-            "scrollAcceleration" -> {
-                latestScrollAcceleration = event.payload["acceleration"] as? Double
-            }
-            "scrollJitter" -> {
-                latestScrollJitter = event.payload["jitter"] as? Double
-            }
-            "tapRate" -> {
-                latestTapRate = event.payload["tap_rate"] as? Double
-            }
-            "foregroundDuration" -> {
-                latestForegroundDuration = (event.payload["duration_seconds"] as? Number)?.toDouble()
-            }
-            "idleGap" -> {
-                latestIdleGapSeconds = (event.payload["idle_seconds"] as? Number)?.toDouble()
-            }
-            "sessionStability" -> {
-                latestStabilityIndex = event.payload["stability_index"] as? Double
-                latestFragmentationIndex = event.payload["fragmentation_index"] as? Double
-            }
-            "appSwitch" -> {
-                appSwitchTimestamps.add(event.timestamp)
-                // Keep only last minute
-                val cutoff = System.currentTimeMillis() - 60000
-                while (appSwitchTimestamps.isNotEmpty() && appSwitchTimestamps.first() < cutoff) {
-                    appSwitchTimestamps.removeFirst()
+        // Update metrics based on new event types
+        when (event.eventType) {
+            "tap" -> {
+                // Tap events - extract tap rate from metrics
+                val tapDuration = (event.metrics["tap_duration_ms"] as? Number)?.toInt() ?: 0
+                // Calculate tap rate from recent tap events
+                val recentTaps = recentEvents.filter { it.eventType == "tap" }
+                if (recentTaps.size > 1) {
+                    try {
+                        val firstTapTime =
+                                Instant.parse(recentTaps.first().timestamp).toEpochMilli()
+                        val lastTapTime = Instant.parse(recentTaps.last().timestamp).toEpochMilli()
+                        val timeSpan = (lastTapTime - firstTapTime) / 1000.0
+                        latestTapRate = if (timeSpan > 0) recentTaps.size / timeSpan else null
+                    } catch (e: Exception) {
+                        latestTapRate = null
+                    }
                 }
+            }
+            "scroll" -> {
+                latestScrollVelocity = (event.metrics["velocity"] as? Number)?.toDouble()
+                latestScrollAcceleration = (event.metrics["acceleration"] as? Number)?.toDouble()
+            }
+            "swipe" -> {
+                // Swipe events - similar to scroll
+                latestScrollVelocity = (event.metrics["velocity"] as? Number)?.toDouble()
+            }
+            "notification" -> {
+                // Track notification events
+            }
+            "call" -> {
+                // Track call events
             }
         }
     }
@@ -79,19 +70,19 @@ class StatsCollector {
     @Synchronized
     fun getCurrentStats(): BehaviorStats {
         return BehaviorStats(
-            typingCadence = latestTypingCadence,
-            interKeyLatency = latestInterKeyLatency,
-            burstLength = latestBurstLength,
-            scrollVelocity = latestScrollVelocity,
-            scrollAcceleration = latestScrollAcceleration,
-            scrollJitter = latestScrollJitter,
-            tapRate = latestTapRate,
-            appSwitchesPerMinute = appSwitchTimestamps.size,
-            foregroundDuration = latestForegroundDuration,
-            idleGapSeconds = latestIdleGapSeconds,
-            stabilityIndex = latestStabilityIndex,
-            fragmentationIndex = latestFragmentationIndex,
-            timestamp = System.currentTimeMillis()
+                typingCadence = latestTypingCadence,
+                interKeyLatency = latestInterKeyLatency,
+                burstLength = latestBurstLength,
+                scrollVelocity = latestScrollVelocity,
+                scrollAcceleration = latestScrollAcceleration,
+                scrollJitter = latestScrollJitter,
+                tapRate = latestTapRate,
+                appSwitchesPerMinute = appSwitchTimestamps.size,
+                foregroundDuration = latestForegroundDuration,
+                idleGapSeconds = latestIdleGapSeconds,
+                stabilityIndex = latestStabilityIndex,
+                fragmentationIndex = latestFragmentationIndex,
+                timestamp = System.currentTimeMillis()
         )
     }
 

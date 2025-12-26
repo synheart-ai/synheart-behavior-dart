@@ -5,11 +5,12 @@ import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import java.time.Instant
 import java.util.LinkedList
 
 /**
- * Collects input signals like keystroke timing.
- * Privacy: NO text content is collected, only timing metrics.
+ * Collects input signals like keystroke timing. Privacy: NO text content is collected, only timing
+ * metrics.
  */
 class InputSignalCollector(private var config: BehaviorConfig) {
 
@@ -19,34 +20,58 @@ class InputSignalCollector(private var config: BehaviorConfig) {
     private var currentBurstLength = 0
     private val maxBurstGap = 2000L // 2 seconds between keystrokes to be in same burst
 
-    private val textWatcher = object : TextWatcher {
-        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+    private val textWatcher =
+            object : TextWatcher {
+                override fun beforeTextChanged(
+                        s: CharSequence?,
+                        start: Int,
+                        count: Int,
+                        after: Int
+                ) {}
 
-        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-            if (count > 0) { // Character added
-                onKeystroke()
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (count > 0) { // Character added
+                        onKeystroke()
+                    }
+                }
+
+                override fun afterTextChanged(s: Editable?) {}
             }
-        }
-
-        override fun afterTextChanged(s: Editable?) {}
-    }
 
     fun setEventHandler(handler: (BehaviorEvent) -> Unit) {
         this.eventHandler = handler
     }
 
     fun attachToView(view: View) {
-        if (!config.enableInputSignals) return
+        if (!config.enableInputSignals) {
+            android.util.Log.d("InputSignalCollector", "Input signals disabled, not attaching")
+            return
+        }
 
+        android.util.Log.d(
+                "InputSignalCollector",
+                "Attaching to view: ${view.javaClass.simpleName}"
+        )
         when (view) {
             is EditText -> {
+                android.util.Log.d("InputSignalCollector", "Found EditText, attaching text watcher")
                 view.addTextChangedListener(textWatcher)
             }
             is ViewGroup -> {
+                android.util.Log.d(
+                        "InputSignalCollector",
+                        "Found ViewGroup with ${view.childCount} children, searching recursively"
+                )
                 // Recursively attach to all EditText children
                 for (i in 0 until view.childCount) {
                     attachToView(view.getChildAt(i))
                 }
+            }
+            else -> {
+                android.util.Log.d(
+                        "InputSignalCollector",
+                        "View is neither EditText nor ViewGroup, skipping"
+                )
             }
         }
     }
@@ -56,6 +81,7 @@ class InputSignalCollector(private var config: BehaviorConfig) {
     }
 
     private fun onKeystroke() {
+        android.util.Log.d("InputSignalCollector", "KEYSTROKE DETECTED!")
         val now = System.currentTimeMillis()
         keystrokeTimestamps.add(now)
 
@@ -75,68 +101,53 @@ class InputSignalCollector(private var config: BehaviorConfig) {
             currentBurstLength = 1
         }
 
-        // Calculate inter-key latency
+        // Calculate inter-key latency and emit typing cadence
+        // For first keystroke, use a default latency of 0 (will be counted but with 0 latency)
         if (lastKeystrokeTime > 0) {
             val latency = now - lastKeystrokeTime
+            android.util.Log.d(
+                    "InputSignalCollector",
+                    "Emitting typingCadence event with latency=$latency"
+            )
             emitTypingCadence(latency)
+        } else {
+            // First keystroke: emit with 0 latency so it's counted
+            android.util.Log.d(
+                    "InputSignalCollector",
+                    "First keystroke, emitting typingCadence event with latency=0"
+            )
+            emitTypingCadence(0)
         }
 
         lastKeystrokeTime = now
     }
 
+    private fun getIsoTimestamp(): String {
+        return Instant.now().toString()
+    }
+
     private fun emitTypingCadence(interKeyLatency: Long) {
-        // Calculate rolling cadence (keys per second)
-        val recentKeys = keystrokeTimestamps.filter { it > System.currentTimeMillis() - 5000 }
-        val cadence = if (recentKeys.size > 1) {
-            val timeSpan = recentKeys.last() - recentKeys.first()
-            if (timeSpan > 0) (recentKeys.size - 1) * 1000.0 / timeSpan else 0.0
-        } else {
-            0.0
-        }
+        // In new model, keystrokes are tracked as tap events
+        // Estimate tap duration (typically 50-150ms for keyboard taps)
+        val estimatedTapDuration = interKeyLatency.coerceIn(50, 150).toInt()
 
         eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current", // Will be set by SDK
-                timestamp = System.currentTimeMillis(),
-                type = "typingCadence",
-                payload = mapOf(
-                    "cadence" to cadence,
-                    "inter_key_latency" to interKeyLatency,
-                    "keys_in_window" to recentKeys.size
+                BehaviorEvent(
+                        sessionId = "current", // Will be set by SDK
+                        timestamp = getIsoTimestamp(),
+                        eventType = "tap",
+                        metrics =
+                                mapOf(
+                                        "tap_duration_ms" to estimatedTapDuration,
+                                        "long_press" to false
+                                )
                 )
-            )
         )
     }
 
     private fun emitTypingBurst(burstLength: Int) {
-        if (burstLength < 3) return // Only emit significant bursts
-
-        val recentLatencies = mutableListOf<Long>()
-        for (i in 1 until keystrokeTimestamps.size.coerceAtMost(burstLength)) {
-            recentLatencies.add(keystrokeTimestamps[i] - keystrokeTimestamps[i - 1])
-        }
-
-        val avgLatency = if (recentLatencies.isNotEmpty()) {
-            recentLatencies.average()
-        } else 0.0
-
-        val variance = if (recentLatencies.size > 1) {
-            val mean = recentLatencies.average()
-            recentLatencies.map { (it - mean) * (it - mean) }.average()
-        } else 0.0
-
-        eventHandler?.invoke(
-            BehaviorEvent(
-                sessionId = "current",
-                timestamp = System.currentTimeMillis(),
-                type = "typingBurst",
-                payload = mapOf(
-                    "burst_length" to burstLength,
-                    "inter_key_latency" to avgLatency,
-                    "variance" to variance
-                )
-            )
-        )
+        // Bursts are now tracked as individual tap events
+        // No need to emit separate burst events
     }
 
     fun dispose() {

@@ -1,13 +1,14 @@
 /// Rolling statistics snapshot of current behavioral signals.
 class BehaviorStats {
-  /// Current typing cadence (keys per second).
-  final double? typingCadence;
+  // Typing functionality removed - these fields are always null
+  // /// Current typing cadence (keys per second).
+  // final double? typingCadence;
 
-  /// Current inter-key latency in milliseconds.
-  final double? interKeyLatency;
+  // /// Current inter-key latency in milliseconds.
+  // final double? interKeyLatency;
 
-  /// Current burst length (number of keys in current burst).
-  final int? burstLength;
+  // /// Current burst length (number of keys in current burst).
+  // final int? burstLength;
 
   /// Current scroll velocity (pixels per second).
   final double? scrollVelocity;
@@ -40,9 +41,9 @@ class BehaviorStats {
   final int timestamp;
 
   const BehaviorStats({
-    this.typingCadence,
-    this.interKeyLatency,
-    this.burstLength,
+    // this.typingCadence,
+    // this.interKeyLatency,
+    // this.burstLength,
     this.scrollVelocity,
     this.scrollAcceleration,
     this.scrollJitter,
@@ -57,9 +58,9 @@ class BehaviorStats {
 
   factory BehaviorStats.fromJson(Map<String, dynamic> json) {
     return BehaviorStats(
-      typingCadence: json['typing_cadence'] as double?,
-      interKeyLatency: json['inter_key_latency'] as double?,
-      burstLength: json['burst_length'] as int?,
+      // typingCadence: json['typing_cadence'] as double?,
+      // interKeyLatency: json['inter_key_latency'] as double?,
+      // burstLength: json['burst_length'] as int?,
       scrollVelocity: json['scroll_velocity'] as double?,
       scrollAcceleration: json['scroll_acceleration'] as double?,
       scrollJitter: json['scroll_jitter'] as double?,
@@ -74,9 +75,9 @@ class BehaviorStats {
   }
 
   Map<String, dynamic> toJson() => {
-        'typing_cadence': typingCadence,
-        'inter_key_latency': interKeyLatency,
-        'burst_length': burstLength,
+        // 'typing_cadence': typingCadence,
+        // 'inter_key_latency': interKeyLatency,
+        // 'burst_length': burstLength,
         'scroll_velocity': scrollVelocity,
         'scroll_acceleration': scrollAcceleration,
         'scroll_jitter': scrollJitter,
@@ -89,4 +90,3 @@ class BehaviorStats {
         'timestamp': timestamp,
       };
 }
-
