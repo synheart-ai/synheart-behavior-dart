@@ -10,7 +10,7 @@ A privacy-preserving mobile SDK that collects digital behavioral signals from sm
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
-- **Zero Permissions**: No special permissions required for basic functionality
+- **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android with native implementations
 
 ## Installation
