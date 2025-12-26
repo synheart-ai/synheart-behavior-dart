@@ -76,6 +76,12 @@ app.*.map.json
 # Coverage
 coverage/
 
+# Documentation notes (local only, not for version control)
+note.md
+note-2.md
+metrics.md
+PERMISSIONS_DATA_MATRIX.md
+
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
