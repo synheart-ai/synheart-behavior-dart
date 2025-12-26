@@ -96,12 +96,15 @@ class AttentionSignalCollector {
 
         if !isInForeground {
             isInForeground = true
-            appSwitchCount += 1
-
+            
             let backgroundDuration = backgroundStartTime > 0 ? now - backgroundStartTime : 0
             totalBackgroundTime += backgroundDuration
-
-            emitAppSwitch(direction: "foreground", duration: backgroundDuration)
+            
+            // Emit app switch event if we had a background period
+            // Note: App switch count is incremented when going to background, not when returning
+            if backgroundDuration > 0 {
+                emitAppSwitchEvent(backgroundDuration: backgroundDuration)
+            }
         }
 
         startStabilityTimer()
@@ -117,8 +120,11 @@ class AttentionSignalCollector {
             let foregroundDuration = foregroundStartTime > 0 ? now - foregroundStartTime : 0
             totalForegroundTime += foregroundDuration
 
+            // Count app switch when going to background (this is when the switch actually happens)
+            // This ensures app switch is counted even if session is auto-ended while in background
+            appSwitchCount += 1
+
             emitForegroundDuration(duration: foregroundDuration)
-            emitAppSwitch(direction: "background", duration: foregroundDuration)
         }
 
         stabilityTimer?.invalidate()
@@ -131,11 +137,26 @@ class AttentionSignalCollector {
         }
     }
 
-    // App switches are tracked in session data, not emitted as events
-    // These methods are kept for internal tracking but don't emit events
+    // Emit app switch event so it can break deep focus blocks
+    private func emitAppSwitchEvent(backgroundDuration: Double) {
+        guard let handler = eventHandler else { return }
+        
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        handler(BehaviorEvent(
+            sessionId: "current",
+            timestamp: formatter.string(from: Date()),
+            eventType: "app_switch",
+            metrics: [
+                "background_duration_ms": Int(backgroundDuration)
+            ]
+        ))
+    }
+    
+    // Legacy method - kept for compatibility but not used
     private func emitAppSwitch(direction: String, duration: Double) {
-        // App switches are tracked in session data, not as separate events
-        // The appSwitchCount is already being tracked
+        // Use emitAppSwitchEvent instead
     }
 
     private func emitForegroundDuration(duration: Double) {
@@ -149,5 +170,10 @@ class AttentionSignalCollector {
     // Expose app switch count for session tracking
     func getAppSwitchCount() -> Int {
         return appSwitchCount
+    }
+    
+    // Reset app switch count for a new session
+    func resetAppSwitchCount() {
+        appSwitchCount = 0
     }
 }

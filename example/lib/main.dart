@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
 
@@ -28,11 +29,12 @@ class BehaviorDemoPage extends StatefulWidget {
   State<BehaviorDemoPage> createState() => _BehaviorDemoPageState();
 }
 
-class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
+class _BehaviorDemoPageState extends State<BehaviorDemoPage>
+    with WidgetsBindingObserver {
   // Constants
   static const int _maxEventsToKeep = 50;
   static const int _eventRetentionMinutes = 5;
-  // static const double _eventsListHeight = 300.0;
+  static const int _backgroundSessionTimeoutMinutes = 1; // 1 minute
 
   SynheartBehavior? _behavior;
   BehaviorSession? _currentSession;
@@ -40,17 +42,87 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
   List<BehaviorEvent> _events = [];
   List<BehaviorEvent> _sessionEvents =
       []; // Events collected during current session
-  // ignore: unused_field
-  BehaviorWindowFeatures? _shortWindowFeatures;
-  // ignore: unused_field
-  BehaviorWindowFeatures? _longWindowFeatures;
   bool _isInitialized = false;
   bool _isSessionActive = false;
+  bool _sessionAutoEnded = false; // Track if session was auto-ended
+  BehaviorSessionSummary? _autoEndedSummary; // Store summary if auto-ended
+  List<BehaviorEvent> _autoEndedEvents = []; // Store events if auto-ended
+  Timer? _backgroundTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeSDK();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // App went to background
+      _onAppBackgrounded();
+    } else if (state == AppLifecycleState.resumed) {
+      // App returned to foreground
+      _onAppForegrounded();
+    }
+  }
+
+  void _onAppBackgrounded() {
+    if (!_isSessionActive || _currentSession == null) return;
+
+    print(
+        'App went to background. Starting ${_backgroundSessionTimeoutMinutes} minute timer...');
+
+    // Cancel any existing timer
+    _backgroundTimer?.cancel();
+
+    // Start timer to auto-end session after 1 minute
+    _backgroundTimer = Timer(
+      Duration(minutes: _backgroundSessionTimeoutMinutes),
+      () {
+        if (_isSessionActive && _currentSession != null) {
+          print('Background timeout reached. Auto-ending session...');
+          _endSession(autoEnded: true);
+        }
+      },
+    );
+  }
+
+  void _onAppForegrounded() {
+    // Cancel the timer if app returned before timeout
+    _backgroundTimer?.cancel();
+
+    // If session was auto-ended while in background, show results
+    if (_sessionAutoEnded && _autoEndedSummary != null && mounted) {
+      print(
+          'App returned to foreground. Session was auto-ended. Showing results...');
+
+      // Store values in local variables to avoid null issues in callback
+      final summary = _autoEndedSummary!;
+      final events = List<BehaviorEvent>.from(_autoEndedEvents);
+
+      // Reset auto-ended flags immediately
+      _sessionAutoEnded = false;
+      _autoEndedSummary = null;
+      _autoEndedEvents = [];
+
+      // Delay slightly to ensure widget is fully mounted
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && context.mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => SessionResultsScreen(
+                summary: summary,
+                events: events,
+              ),
+            ),
+          );
+        }
+      });
+    }
   }
 
   Future<void> _initializeSDK() async {
@@ -90,27 +162,6 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
             }
           }
         });
-      });
-
-      // Listen to 30-second window features (updates every 5s)
-      behavior.onShortWindowFeatures.listen((features) {
-        setState(() {
-          _shortWindowFeatures = features;
-        });
-      });
-
-      // Listen to 5-minute window features (updates every 30s)
-      behavior.onLongWindowFeatures.listen((features) {
-        setState(() {
-          _longWindowFeatures = features;
-        });
-
-        // Example: Convert to HSI payload format
-        final hsiPayload = behavior.toHSIPayload(features);
-        if (hsiPayload != null) {
-          // In production, send this payload to your HSI service
-          // print('HSI Payload: ${jsonEncode(hsiPayload)}');
-        }
       });
 
       // Check and request notification permission
@@ -153,20 +204,24 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
     }
   }
 
-  Future<void> _endSession() async {
-    print('_endSession called');
+  Future<void> _endSession({bool autoEnded = false}) async {
+    print('_endSession called (autoEnded: $autoEnded)');
     print('_currentSession: $_currentSession');
     print('_isSessionActive: $_isSessionActive');
 
     if (_currentSession == null) {
       print('ERROR: _currentSession is null!');
-      if (mounted) {
+      if (mounted && !autoEnded) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No active session to end')),
         );
       }
       return;
     }
+
+    // Cancel background timer if it exists
+    _backgroundTimer?.cancel();
+    _backgroundTimer = null;
 
     try {
       print('Calling _currentSession!.end()...');
@@ -186,9 +241,16 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
         _isSessionActive = false;
       });
 
-      if (mounted) {
+      if (autoEnded) {
+        // Store summary and events to show when app returns to foreground
+        _sessionAutoEnded = true;
+        _autoEndedSummary = summary;
+        _autoEndedEvents = sessionEvents;
+        print(
+            'Session auto-ended. Will show results when app returns to foreground.');
+      } else if (mounted) {
         print('Navigating to SessionResultsScreen...');
-        // Navigate to session results screen
+        // Navigate to session results screen immediately
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) => SessionResultsScreen(
@@ -201,7 +263,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
     } catch (e, stackTrace) {
       print('ERROR ending session: $e');
       print('Stack trace: $stackTrace');
-      if (mounted) {
+      if (mounted && !autoEnded) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to end session: $e')),
         );
@@ -345,6 +407,8 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _backgroundTimer?.cancel();
     _behavior?.dispose();
     super.dispose();
   }
@@ -492,8 +556,6 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
               ),
 
               const SizedBox(height: 16),
-
-              // Only show stats and window features when session is NOT active
               if (!_isSessionActive) ...[
                 // Stats Card
                 if (_currentStats != null)
@@ -571,6 +633,21 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage> {
       ),
     );
   }
+
+  // Color _getEventTypeColor(BehaviorEventType eventType) {
+  //   switch (eventType) {
+  //     case BehaviorEventType.scroll:
+  //       return Colors.blue;
+  //     case BehaviorEventType.tap:
+  //       return Colors.green;
+  //     case BehaviorEventType.swipe:
+  //       return Colors.orange;
+  //     case BehaviorEventType.call:
+  //       return Colors.red;
+  //     case BehaviorEventType.notification:
+  //       return Colors.purple;
+  //   }
+  // }
 }
 
 /// Screen to display session results with events timeline and behavior metrics

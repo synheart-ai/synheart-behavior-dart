@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:io';
+// dart:io was only used for Platform in _generateDeviceId (commented out)
+// import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'models/behavior_config.dart';
@@ -7,9 +8,10 @@ import 'models/behavior_event.dart';
 import 'models/behavior_session.dart'
     show BehaviorSession, BehaviorSessionSummary;
 import 'models/behavior_stats.dart';
-import 'models/behavior_window_features.dart';
-import 'behavior_window_aggregator.dart';
-import 'behavior_feature_extractor.dart';
+// Window features - commented out (not needed for real-time event tracking)
+// import 'models/behavior_window_features.dart';
+// import 'behavior_window_aggregator.dart';
+// import 'behavior_feature_extractor.dart';
 import 'behavior_gesture_detector.dart'
     show BehaviorGestureDetector, BehaviorTextField;
 
@@ -23,18 +25,21 @@ class SynheartBehavior {
   final BehaviorConfig _config;
   final StreamController<BehaviorEvent> _eventController =
       StreamController<BehaviorEvent>.broadcast();
-  final StreamController<BehaviorWindowFeatures> _shortWindowController =
-      StreamController<BehaviorWindowFeatures>.broadcast();
-  final StreamController<BehaviorWindowFeatures> _longWindowController =
-      StreamController<BehaviorWindowFeatures>.broadcast();
+  // Window features - commented out (not needed for real-time event tracking)
+  // final StreamController<BehaviorWindowFeatures> _shortWindowController =
+  //     StreamController<BehaviorWindowFeatures>.broadcast();
+  // final StreamController<BehaviorWindowFeatures> _longWindowController =
+  //     StreamController<BehaviorWindowFeatures>.broadcast();
   final Map<String, BehaviorSession> _activeSessions = {};
 
-  final WindowAggregator _windowAggregator = WindowAggregator();
-  final BehaviorFeatureExtractor _featureExtractor = BehaviorFeatureExtractor();
-  Timer? _windowUpdateTimer;
+  // Window features - commented out (not needed for real-time event tracking)
+  // final WindowAggregator _windowAggregator = WindowAggregator();
+  // final BehaviorFeatureExtractor _featureExtractor = BehaviorFeatureExtractor();
+  // Timer? _windowUpdateTimer;
 
-  String? _userId;
-  String? _deviceId;
+  // User/device IDs - only used for HSI payloads (window features)
+  // String? _userId;
+  // String? _deviceId;
 
   /// Internal method to handle events from Flutter gesture detector
   void _handleFlutterEvent(BehaviorEvent event) {
@@ -52,7 +57,8 @@ class SynheartBehavior {
     }
 
     _eventController.add(eventWithSessionId);
-    _windowAggregator.addEvent(eventWithSessionId);
+    // Window features - commented out (not needed for real-time event tracking)
+    // _windowAggregator.addEvent(eventWithSessionId);
   }
 
   bool _initialized = false;
@@ -74,13 +80,13 @@ class SynheartBehavior {
       // Initialize native SDK
       await _channel.invokeMethod('initialize', config?.toJson() ?? {});
 
-      // Start window feature updates
-      behavior._startWindowUpdates();
+      // Window features - commented out (not needed for real-time event tracking)
+      // behavior._startWindowUpdates();
 
-      // Initialize user and device IDs
-      behavior._userId = config?.userId ?? SynheartBehavior._generateUserId();
-      behavior._deviceId =
-          config?.deviceId ?? SynheartBehavior._generateDeviceId();
+      // User/device IDs - only used for HSI payloads (window features)
+      // behavior._userId = config?.userId ?? SynheartBehavior._generateUserId();
+      // behavior._deviceId =
+      //     config?.deviceId ?? SynheartBehavior._generateDeviceId();
 
       behavior._initialized = true;
       return behavior;
@@ -94,17 +100,18 @@ class SynheartBehavior {
   /// Subscribe to this stream to receive real-time behavioral signals.
   Stream<BehaviorEvent> get onEvent => _eventController.stream;
 
-  /// Stream of 30-second window features.
-  ///
-  /// Emits updated features every 5 seconds for the rolling 30-second window.
-  Stream<BehaviorWindowFeatures> get onShortWindowFeatures =>
-      _shortWindowController.stream;
-
-  /// Stream of 5-minute window features.
-  ///
-  /// Emits updated features every 30 seconds for the rolling 5-minute window.
-  Stream<BehaviorWindowFeatures> get onLongWindowFeatures =>
-      _longWindowController.stream;
+  // Window features - commented out (not needed for real-time event tracking)
+  // /// Stream of 30-second window features.
+  // ///
+  // /// Emits updated features every 5 seconds for the rolling 30-second window.
+  // Stream<BehaviorWindowFeatures> get onShortWindowFeatures =>
+  //     _shortWindowController.stream;
+  //
+  // /// Stream of 5-minute window features.
+  // ///
+  // /// Emits updated features every 30 seconds for the rolling 5-minute window.
+  // Stream<BehaviorWindowFeatures> get onLongWindowFeatures =>
+  //     _longWindowController.stream;
 
   /// Convert nested Map<dynamic, dynamic> to Map<String, dynamic> recursively
   Map<String, dynamic> _convertMap(Map<dynamic, dynamic> map) {
@@ -156,8 +163,9 @@ class SynheartBehavior {
           }
 
           _eventController.add(event);
+          // Window features - commented out (not needed for real-time event tracking)
           // Always add to window aggregator (events are time-based, not session-based)
-          _windowAggregator.addEvent(event);
+          // _windowAggregator.addEvent(event);
         } catch (e) {
           // Silently handle parsing errors to avoid console spam
         }
@@ -181,8 +189,7 @@ class SynheartBehavior {
       );
     }
 
-    final sessionIdToUse =
-        sessionId ??
+    final sessionIdToUse = sessionId ??
         '${_config.sessionIdPrefix ?? 'SESS'}-${DateTime.now().millisecondsSinceEpoch}';
 
     try {
@@ -219,13 +226,12 @@ class SynheartBehavior {
     try {
       // print('Calling native endSession with sessionId: $sessionId');
       final result = await _channel
-          .invokeMethod('endSession', {'sessionId': sessionId})
-          .timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              throw Exception('endSession timed out after 10 seconds');
-            },
-          );
+          .invokeMethod('endSession', {'sessionId': sessionId}).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('endSession timed out after 10 seconds');
+        },
+      );
       // print('Native endSession returned: ${result.runtimeType}');
       if (result == null) {
         throw Exception('Native endSession returned null');
@@ -396,17 +402,20 @@ class SynheartBehavior {
       // Stop native SDK
       await _channel.invokeMethod('dispose');
 
+      // Window features - commented out (not needed for real-time event tracking)
       // Stop window updates
-      _windowUpdateTimer?.cancel();
-      _windowUpdateTimer = null;
+      // _windowUpdateTimer?.cancel();
+      // _windowUpdateTimer = null;
 
       // Close event streams
       await _eventController.close();
-      await _shortWindowController.close();
-      await _longWindowController.close();
+      // Window features - commented out (not needed for real-time event tracking)
+      // await _shortWindowController.close();
+      // await _longWindowController.close();
 
+      // Window features - commented out (not needed for real-time event tracking)
       // Clear window aggregator
-      _windowAggregator.clear();
+      // _windowAggregator.clear();
 
       _initialized = false;
     } catch (e) {
@@ -428,14 +437,14 @@ class SynheartBehavior {
       // Replace "current" session ID with actual session ID if available
       final eventToSend =
           event.sessionId == "current" && _currentSessionId != null
-          ? BehaviorEvent(
-              eventId: event.eventId,
-              sessionId: _currentSessionId!,
-              timestamp: DateTime.parse(event.timestamp),
-              eventType: event.eventType,
-              metrics: event.metrics,
-            )
-          : event;
+              ? BehaviorEvent(
+                  eventId: event.eventId,
+                  sessionId: _currentSessionId!,
+                  timestamp: DateTime.parse(event.timestamp),
+                  eventType: event.eventType,
+                  metrics: event.metrics,
+                )
+              : event;
 
       await _channel.invokeMethod('sendEvent', eventToSend.toJson());
     } catch (e) {
@@ -476,83 +485,86 @@ class SynheartBehavior {
     );
   }
 
-  /// Get features for a specific window type.
-  BehaviorWindowFeatures? getWindowFeatures(WindowType windowType) {
-    if (!_initialized) return null;
+  // Window features - commented out (not needed for real-time event tracking)
+  // /// Get features for a specific window type.
+  // BehaviorWindowFeatures? getWindowFeatures(WindowType windowType) {
+  //   if (!_initialized) return null;
+  //
+  //   final events = _windowAggregator.getWindowEvents(windowType);
+  //   final windowDurationMs = _windowAggregator.getWindowDurationMs(windowType);
+  //
+  //   return _featureExtractor.extractFeatures(
+  //     events,
+  //     windowType,
+  //     windowDurationMs,
+  //   );
+  // }
+  //
+  // /// Convert window features to HSI (Human State Inference) payload format.
+  // ///
+  // /// Returns a JSON-compatible map matching the Behavior → HSI Fusion Table specification.
+  // ///
+  // /// Example:
+  // /// ```dart
+  // /// final features = behavior.getWindowFeatures(WindowType.short);
+  // /// if (features != null) {
+  // ///   final payload = behavior.toHSIPayload(features);
+  // ///   // Send payload to HSI service
+  // /// }
+  // /// ```
+  // Map<String, dynamic>? toHSIPayload(BehaviorWindowFeatures? features) {
+  //   if (features == null || !_initialized) return null;
+  //
+  //   return features.toHSIPayload(
+  //     userId: _userId ?? SynheartBehavior._generateUserId(),
+  //     deviceId: _deviceId ?? SynheartBehavior._generateDeviceId(),
+  //     behaviorVersion: _config.behaviorVersion,
+  //     consentBehavior: _config.consentBehavior,
+  //   );
+  // }
 
-    final events = _windowAggregator.getWindowEvents(windowType);
-    final windowDurationMs = _windowAggregator.getWindowDurationMs(windowType);
+  // User/device ID generation - only used for HSI payloads (window features)
+  // /// Generate an anonymous user ID.
+  // static String _generateUserId() {
+  //   // Generate a simple anonymous ID (in production, use proper anonymization)
+  //   final timestamp = DateTime.now().millisecondsSinceEpoch;
+  //   final random = (timestamp % 1000000).toRadixString(16);
+  //   return 'anon_$random';
+  // }
+  //
+  // /// Generate a device ID based on platform.
+  // static String _generateDeviceId() {
+  //   final platform = Platform.isAndroid
+  //       ? 'android'
+  //       : (Platform.isIOS ? 'ios' : 'unknown');
+  //   // In production, you might want to use device_info_plus package for more details
+  //   return 'synheart_${platform}_${Platform.operatingSystemVersion.split(' ').first}';
+  // }
 
-    return _featureExtractor.extractFeatures(
-      events,
-      windowType,
-      windowDurationMs,
-    );
-  }
-
-  /// Convert window features to HSI (Human State Inference) payload format.
-  ///
-  /// Returns a JSON-compatible map matching the Behavior → HSI Fusion Table specification.
-  ///
-  /// Example:
-  /// ```dart
-  /// final features = behavior.getWindowFeatures(WindowType.short);
-  /// if (features != null) {
-  ///   final payload = behavior.toHSIPayload(features);
-  ///   // Send payload to HSI service
-  /// }
-  /// ```
-  Map<String, dynamic>? toHSIPayload(BehaviorWindowFeatures? features) {
-    if (features == null || !_initialized) return null;
-
-    return features.toHSIPayload(
-      userId: _userId ?? SynheartBehavior._generateUserId(),
-      deviceId: _deviceId ?? SynheartBehavior._generateDeviceId(),
-      behaviorVersion: _config.behaviorVersion,
-      consentBehavior: _config.consentBehavior,
-    );
-  }
-
-  /// Generate an anonymous user ID.
-  static String _generateUserId() {
-    // Generate a simple anonymous ID (in production, use proper anonymization)
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = (timestamp % 1000000).toRadixString(16);
-    return 'anon_$random';
-  }
-
-  /// Generate a device ID based on platform.
-  static String _generateDeviceId() {
-    final platform = Platform.isAndroid
-        ? 'android'
-        : (Platform.isIOS ? 'ios' : 'unknown');
-    // In production, you might want to use device_info_plus package for more details
-    return 'synheart_${platform}_${Platform.operatingSystemVersion.split(' ').first}';
-  }
-
-  int _longWindowUpdateCounter = 0;
-
-  /// Start periodic window feature updates.
-  void _startWindowUpdates() {
-    // Update short window every 5 seconds, long window every 30 seconds
-    _windowUpdateTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_initialized) return;
-
-      // Always update short window
-      final shortFeatures = getWindowFeatures(WindowType.short);
-      if (shortFeatures != null) {
-        _shortWindowController.add(shortFeatures);
-      }
-
-      // Update long window every 30 seconds (every 6th update)
-      _longWindowUpdateCounter++;
-      if (_longWindowUpdateCounter >= 6) {
-        _longWindowUpdateCounter = 0;
-        final longFeatures = getWindowFeatures(WindowType.long);
-        if (longFeatures != null) {
-          _longWindowController.add(longFeatures);
-        }
-      }
-    });
-  }
+  // Window features - commented out (not needed for real-time event tracking)
+  // int _longWindowUpdateCounter = 0;
+  //
+  // /// Start periodic window feature updates.
+  // void _startWindowUpdates() {
+  //   // Update short window every 5 seconds, long window every 30 seconds
+  //   _windowUpdateTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+  //     if (!_initialized) return;
+  //
+  //     // Always update short window
+  //     final shortFeatures = getWindowFeatures(WindowType.short);
+  //     if (shortFeatures != null) {
+  //       _shortWindowController.add(shortFeatures);
+  //     }
+  //
+  //     // Update long window every 30 seconds (every 6th update)
+  //     _longWindowUpdateCounter++;
+  //     if (_longWindowUpdateCounter >= 6) {
+  //       _longWindowUpdateCounter = 0;
+  //       final longFeatures = getWindowFeatures(WindowType.long);
+  //       if (longFeatures != null) {
+  //         _longWindowController.add(longFeatures);
+  //       }
+  //     }
+  //   });
+  // }
 }

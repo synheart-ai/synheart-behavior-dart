@@ -1,5 +1,7 @@
 package ai.synheart.behavior
 
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
@@ -20,12 +22,21 @@ class GestureCollector(private var config: BehaviorConfig) {
 
     private var eventHandler: ((BehaviorEvent) -> Unit)? = null
 
-    // Scroll tracking - using native scroll velocity
-    private var lastScrollY = 0
+    // Scroll tracking - wait until scroll stops before calculating
+    private var scrollStartTime = 0L
+    private var scrollStartPosition = 0.0
+    private var scrollEndPosition = 0.0
+    private var currentScrollPosition = 0.0 // Cumulative scroll position
     private var lastScrollTime = 0L
-    private var previousVelocity = 0.0
     private var lastScrollDirection: String? = null // "up", "down", "left", "right"
     private var hasDirectionReversal = false
+    private var scrollStopHandler: Handler? = null
+    private var scrollStopRunnable: Runnable? = null
+    private val scrollStopThresholdMs = 1000L // Wait 1000ms (1s) after last scroll update
+
+    // Velocity tracking for scroll
+    private var lastScrollDelta = 0
+    private var lastScrollVelocityTime = 0L
 
     // Tap tracking
     private val tapTimestamps = LinkedList<Long>()
@@ -221,55 +232,113 @@ class GestureCollector(private var config: BehaviorConfig) {
 
     private fun onScrollDelta(dy: Int) {
         val now = System.currentTimeMillis()
+        // dy is the scroll delta (change), so accumulate it
+        currentScrollPosition += dy
 
-        if (lastScrollTime == 0L) {
+        // If this is the start of a new scroll, initialize tracking
+        if (scrollStartTime == 0L) {
+            scrollStartTime = now
+            scrollStartPosition = currentScrollPosition - dy // Position before this update
+            scrollEndPosition = currentScrollPosition
             lastScrollTime = now
-            lastScrollY = dy
-            return
-        }
+            hasDirectionReversal = false
+            // Determine initial direction from delta
+            lastScrollDirection = if (dy > 0) "down" else "up"
+            scrollStopHandler = Handler(Looper.getMainLooper())
+            // Initialize velocity tracking
+            lastScrollVelocityTime = now
+            lastScrollDelta = dy
+        } else {
+            // For subsequent updates, determine direction from delta
+            val newDirection =
+                    if (dy > 0) "down" else if (dy < 0) "up" else lastScrollDirection ?: "down"
 
-        val timeDelta = now - lastScrollTime
-        if (timeDelta == 0L) return
+            // Check for direction reversal
+            if (lastScrollDirection != null && lastScrollDirection != newDirection) {
+                hasDirectionReversal = true
+            }
 
-        // Calculate velocity from scroll delta (pixels per second)
-        val deltaY = dy - lastScrollY
-        val velocity = abs(deltaY) / timeDelta.toDouble() * 1000.0
+            // Update direction and end position
+            if (dy != 0) {
+                lastScrollDirection = newDirection
+            }
+            scrollEndPosition = currentScrollPosition
+            lastScrollTime = now
 
-        // Calculate acceleration (change in velocity over time)
-        val acceleration =
-                if (previousVelocity > 0 && timeDelta > 0) {
-                    (velocity - previousVelocity) / (timeDelta / 1000.0)
-                } else 0.0
-
-        // Determine scroll direction
-        val direction =
-                when {
-                    deltaY > 0 -> "down"
-                    deltaY < 0 -> "up"
-                    else -> lastScrollDirection ?: "down"
+            // Calculate instantaneous velocity from scroll deltas (native-like calculation)
+            // This mimics how Android's VelocityTracker calculates velocity internally
+            // Velocity = delta position / delta time
+            if (lastScrollVelocityTime > 0) {
+                val timeDelta = now - lastScrollVelocityTime
+                if (timeDelta > 0 && abs(dy) > 0) {
+                    // Instantaneous velocity in pixels per second (native calculation)
+                    // This is how VelocityTracker works: it tracks deltas over time
+                    val instantaneousVelocity = abs(dy).toDouble() / (timeDelta / 1000.0)
+                    // Store delta for potential use
+                    lastScrollDelta = dy
                 }
-
-        // Check for direction reversal
-        if (lastScrollDirection != null && lastScrollDirection != direction) {
-            hasDirectionReversal = true
+            }
+            lastScrollVelocityTime = now
         }
 
-        // Emit scroll events
-        if (velocity > 10.0) { // Only emit if significant movement
+        // Cancel previous timer and start a new one
+        scrollStopRunnable?.let { scrollStopHandler?.removeCallbacks(it) }
+        scrollStopRunnable = Runnable { finalizeScroll() }
+        scrollStopHandler?.postDelayed(scrollStopRunnable!!, scrollStopThresholdMs)
+    }
+
+    private fun finalizeScroll() {
+        if (scrollStartTime == 0L) return
+
+        val now = System.currentTimeMillis()
+        val durationMs = now - scrollStartTime
+        val distancePx = abs(scrollEndPosition - scrollStartPosition)
+
+        if (durationMs > 0 && distancePx > 0) {
+            // Calculate velocity in pixels per second
+            // Note: Android's VelocityTracker requires MotionEvent objects, which we don't have
+            // for scroll views (only for touch gestures). For scroll views, we calculate velocity
+            // the same way VelocityTracker does internally: velocity = distance / time
+            // This is the standard method for calculating velocity from position changes
+            val velocity = (distancePx / durationMs * 1000.0).coerceIn(0.0, 10000.0)
+
+            // Calculate acceleration using proper physics formula
+            // For constant acceleration from rest: a = 2d/t²
+            // where d = distance (pixels), t = time (seconds)
+            val durationSeconds = durationMs / 1000.0
+            val acceleration =
+                    if (durationSeconds > 0.1) {
+                        (2.0 * distancePx) / (durationSeconds * durationSeconds)
+                    } else {
+                        0.0
+                    }
+            val clampedAcceleration = acceleration.coerceIn(0.0, 50000.0)
+
+            // Emit scroll event with calculated metrics
             emitScrollEvent(
                     velocity = velocity,
-                    acceleration = acceleration,
-                    direction = direction,
+                    acceleration = clampedAcceleration,
+                    direction = lastScrollDirection ?: "down",
                     directionReversal = hasDirectionReversal
             )
-
-            hasDirectionReversal = false
         }
 
-        previousVelocity = velocity
-        lastScrollTime = now
-        lastScrollY = dy
-        lastScrollDirection = direction
+        // Reset velocity tracking
+        lastScrollDelta = 0
+        lastScrollVelocityTime = 0L
+
+        // Reset scroll tracking
+        scrollStartTime = 0L
+        scrollStartPosition = 0.0
+        scrollEndPosition = 0.0
+        currentScrollPosition = 0.0
+        lastScrollTime = 0L
+        lastScrollDirection = null
+        hasDirectionReversal = false
+        scrollStopRunnable = null
+        // Reset velocity tracking
+        lastScrollDelta = 0
+        lastScrollVelocityTime = 0L
     }
 
     private fun getIsoTimestamp(): String {

@@ -308,6 +308,11 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
         // Attach SDK to root view for signal collection
         rootView?.let { view -> behaviorSDK?.attachToView(view) }
+
+        // Register for configuration changes to track orientation
+        // We'll check orientation changes periodically since ActivityPluginBinding
+        // doesn't have a direct configuration change listener
+        // The BehaviorSDK will check orientation on its own via a different mechanism
     }
 
     override fun onDetachedFromActivityForConfigChanges() {

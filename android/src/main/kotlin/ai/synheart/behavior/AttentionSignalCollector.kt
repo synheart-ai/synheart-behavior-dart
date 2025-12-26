@@ -38,7 +38,6 @@ class AttentionSignalCollector(private var config: BehaviorConfig) {
 
         if (!isInForeground) {
             isInForeground = true
-            appSwitchCount++
 
             // Calculate background duration
             val backgroundDuration =
@@ -48,7 +47,11 @@ class AttentionSignalCollector(private var config: BehaviorConfig) {
 
             totalBackgroundTime += backgroundDuration
 
-            // App switches are tracked in session data, not emitted as events
+            // Emit app switch event if we had a background period
+            // Note: App switch count is incremented when going to background, not when returning
+            if (backgroundDuration > 0) {
+                emitAppSwitchEvent(backgroundDuration)
+            }
         }
 
         // Stability is computed in session summary, not emitted as events
@@ -71,7 +74,9 @@ class AttentionSignalCollector(private var config: BehaviorConfig) {
 
             totalForegroundTime += foregroundDuration
 
-            // Foreground duration and app switches are tracked in session data
+            // Count app switch when going to background (this is when the switch actually happens)
+            // This ensures app switch is counted even if session is auto-ended while in background
+            appSwitchCount++
         }
 
         // Stability is computed in session summary
@@ -80,6 +85,25 @@ class AttentionSignalCollector(private var config: BehaviorConfig) {
     // Expose app switch count for session tracking
     fun getAppSwitchCount(): Int {
         return appSwitchCount
+    }
+
+    // Reset app switch count for a new session
+    fun resetAppSwitchCount() {
+        appSwitchCount = 0
+    }
+
+    private fun emitAppSwitchEvent(backgroundDuration: Long) {
+        if (eventHandler != null) {
+            val instant = java.time.Instant.now()
+            eventHandler?.invoke(
+                    BehaviorEvent(
+                            sessionId = "current",
+                            timestamp = instant.toString(),
+                            eventType = "app_switch",
+                            metrics = mapOf("background_duration_ms" to backgroundDuration.toInt())
+                    )
+            )
+        }
     }
 
     fun dispose() {

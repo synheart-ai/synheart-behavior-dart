@@ -46,6 +46,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     // Device context tracking
     private var startScreenBrightness: Float = 0f
     private var startOrientation: Int = Configuration.ORIENTATION_PORTRAIT
+    private var lastOrientation: Int =
+            Configuration.ORIENTATION_PORTRAIT // Track last orientation to detect all changes
     private var orientationChangeCount: Int = 0
 
     // System state tracking
@@ -56,6 +58,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
             object : Runnable {
                 override fun run() {
                     checkIdleState()
+                    checkOrientationChange() // Also check orientation changes
                     handler.postDelayed(this, 1000) // Check every second
                 }
             }
@@ -118,9 +121,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         currentSessionId = sessionId
         val now = System.currentTimeMillis()
 
+        // Reset app switch count for new session
+        attentionSignalCollector.resetAppSwitchCount()
+
         // Capture device context at session start
         startScreenBrightness = getScreenBrightness()
         startOrientation = context.resources.configuration.orientation
+        lastOrientation = startOrientation // Initialize last orientation to start orientation
         orientationChangeCount = 0
 
         // Capture system state at session start
@@ -128,7 +135,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         startDoNotDisturb = isDoNotDisturbEnabled()
         startCharging = isCharging()
 
-        // Calculate session spacing (time since last app use)
+        // Calculate session spacing (time between end of previous session and start of current
+        // session)
         val sessionSpacing =
                 if (lastAppUseTime != null) {
                     now - lastAppUseTime!!
@@ -149,7 +157,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 )
 
         lastInteractionTime = now
-        lastAppUseTime = now
+        // Don't update lastAppUseTime here - it will be updated when session ends
 
         // Register orientation change listener
         registerOrientationListener()
@@ -227,22 +235,50 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     }
 
     private fun registerOrientationListener() {
-        // Track orientation changes
-        val configChangeListener =
-                object : View.OnAttachStateChangeListener {
-                    override fun onViewAttachedToWindow(v: View) {}
-                    override fun onViewDetachedFromWindow(v: View) {}
-                }
-        // Orientation changes will be detected via configuration changes
+        // Track orientation changes by checking periodically
+        // Since we can't directly listen to configuration changes in the plugin,
+        // we'll check orientation changes in the idle check runnable
+        // Orientation changes will be detected when onConfigurationChanged is called
+        // from the plugin, or we can check periodically
+    }
+
+    // Check orientation changes periodically (called every second from idle check)
+    // This ensures we detect orientation changes even if onConfigurationChanged isn't called
+    private fun checkOrientationChange() {
+        val currentOrientation = context.resources.configuration.orientation
+        if (currentOrientation != lastOrientation &&
+                        currentOrientation != Configuration.ORIENTATION_UNDEFINED &&
+                        currentSessionId != null
+        ) {
+            orientationChangeCount++
+            lastOrientation = currentOrientation
+            sessionData[currentSessionId]?.let { data ->
+                data.orientationChangeCount = orientationChangeCount
+            }
+            android.util.Log.d(
+                    "BehaviorSDK",
+                    "Orientation changed: count=$orientationChangeCount, current=$currentOrientation"
+            )
+        }
     }
 
     fun onConfigurationChanged(newConfig: Configuration) {
         val currentOrientation = newConfig.orientation
-        if (currentOrientation != startOrientation && currentSessionId != null) {
+        // Count orientation changes by comparing with last orientation, not just start orientation
+        // This ensures we count all changes (portrait->landscape->portrait = 2 changes)
+        if (currentOrientation != lastOrientation &&
+                        currentOrientation != Configuration.ORIENTATION_UNDEFINED &&
+                        currentSessionId != null
+        ) {
             orientationChangeCount++
+            lastOrientation = currentOrientation // Update last orientation
             sessionData[currentSessionId]?.let { data ->
                 data.orientationChangeCount = orientationChangeCount
             }
+            android.util.Log.d(
+                    "BehaviorSDK",
+                    "Orientation changed: count=$orientationChangeCount, current=$currentOrientation"
+            )
         }
     }
 
@@ -256,6 +292,10 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         }
 
         data.endTime = System.currentTimeMillis()
+
+        // Update lastAppUseTime to session end time for next session's spacing calculation
+        // Session spacing = time between end_session and start_session
+        lastAppUseTime = data.endTime
 
         val duration = data.endTime - data.startTime
         val durationSeconds = duration / 1000.0
@@ -491,6 +531,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 computeDeepFocusBlocks(
                         data.events,
                         durationMs,
+                        data.startTime,
+                        data.endTime,
                         notificationCount,
                         callCount,
                         data.appSwitchCount
@@ -627,10 +669,12 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
     private fun computeDeepFocusBlocks(
             events: List<BehaviorEvent>,
-            durationMs: Long,
-            notificationCount: Int,
-            callCount: Int,
-            appSwitchCount: Int
+            durationMs: Long, // Unused but kept for API consistency
+            sessionStartTime: Long,
+            sessionEndTime: Long,
+            notificationCount: Int, // Unused but kept for API consistency
+            callCount: Int, // Unused but kept for API consistency
+            appSwitchCount: Int // Unused but kept for API consistency
     ): List<Map<String, Any>> {
         // Deep focus block = continuous app engagement ≥ 120s without
         // idle, app switch, notification or call event
@@ -642,9 +686,10 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val idleThresholdMs = 30000L // 30 seconds
         var blockStart: Long? = null
         var blockEnd: Long? = null
+        var lastBlockEndTime: Long? = null // Track when last block ended
 
-        // Filter out interruption events (notifications, calls)
-        val interruptionEventTypes = setOf("notification", "call")
+        // Filter out interruption events (notifications, calls, app switches)
+        val interruptionEventTypes = setOf("notification", "call", "app_switch")
 
         for (i in 0 until events.size) {
             try {
@@ -660,7 +705,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                             val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
                             currTime - prevTime
                         } else {
-                            0L
+                            // First event - check gap from session start
+                            currTime - sessionStartTime
                         }
 
                 // If we hit an interruption or idle gap, end current block
@@ -678,12 +724,26 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                             )
                         }
                     }
+                    lastBlockEndTime = if (isInterruption) currTime else blockEnd
                     blockStart = null
                     blockEnd = null
                 } else {
                     // Continue or start a focus block
                     if (blockStart == null) {
-                        blockStart = currTime
+                        // Starting a new block - check if we should start from session start or
+                        // previous block end
+                        if (i == 0 && gap <= idleThresholdMs) {
+                            // First event and close to session start - start from session start
+                            blockStart = sessionStartTime
+                        } else if (lastBlockEndTime != null &&
+                                        (currTime - lastBlockEndTime) <= idleThresholdMs
+                        ) {
+                            // Close to previous block end - start from previous block end
+                            blockStart = lastBlockEndTime
+                        } else {
+                            // Start from current event time
+                            blockStart = currTime
+                        }
                     }
                     blockEnd = currTime
                 }
@@ -692,14 +752,30 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
             }
         }
 
-        // Check final block
+        // Check final block - include time from last event to session end if recent
         if (blockStart != null && blockEnd != null) {
-            val blockDuration = blockEnd - blockStart
+            // Get the last event time in the block
+            val lastEventTime = blockEnd
+
+            // If last event was recent (within idle threshold of session end), extend to session
+            // end
+            // This ensures we count engagement time even if no events were generated at the end
+            val timeFromLastEventToSessionEnd = sessionEndTime - lastEventTime
+            val finalBlockEnd =
+                    if (timeFromLastEventToSessionEnd <= idleThresholdMs) {
+                        // Last event was recent, include time up to session end
+                        sessionEndTime
+                    } else {
+                        // Last event was too long ago, use event timestamp
+                        blockEnd
+                    }
+
+            val blockDuration = finalBlockEnd - blockStart
             if (blockDuration >= minBlockDurationMs) {
                 deepFocusBlocks.add(
                         mapOf(
                                 "start_at" to Instant.ofEpochMilli(blockStart).toString(),
-                                "end_at" to Instant.ofEpochMilli(blockEnd).toString(),
+                                "end_at" to Instant.ofEpochMilli(finalBlockEnd).toString(),
                                 "duration_ms" to blockDuration.toInt()
                         )
                 )

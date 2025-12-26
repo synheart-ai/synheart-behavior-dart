@@ -6,13 +6,13 @@ This document describes how to profile the Synheart Behavioral SDK performance a
 
 The SDK is designed to be lightweight with the following targets:
 
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| **CPU Usage** | <2% | Minimal impact on app performance |
-| **Memory Footprint** | <500 KB | Small memory overhead |
-| **Battery Impact** | <2% | Negligible battery drain over 8-hour session |
-| **Processing Latency** | <1 ms | Real-time signal collection |
-| **Background Threads** | 0 | No dedicated background processing |
+| Metric                 | Target  | Rationale                                    |
+| ---------------------- | ------- | -------------------------------------------- |
+| **CPU Usage**          | <2%     | Minimal impact on app performance            |
+| **Memory Footprint**   | <500 KB | Small memory overhead                        |
+| **Battery Impact**     | <2%     | Negligible battery drain over 8-hour session |
+| **Processing Latency** | <1 ms   | Real-time signal collection                  |
+| **Background Threads** | 0       | No dedicated background processing           |
 
 ## Built-in Performance Monitoring
 
@@ -21,6 +21,7 @@ The SDK includes built-in performance monitoring tools for both Android and iOS.
 ### Android Performance Monitoring
 
 The Android SDK includes `PerformanceMonitor.kt` which tracks:
+
 - Memory usage (resident memory in KB)
 - CPU usage percentage
 - Uptime and sampling count
@@ -28,6 +29,7 @@ The Android SDK includes `PerformanceMonitor.kt` which tracks:
 ### iOS Performance Monitoring
 
 The iOS SDK includes `PerformanceMonitor.swift` which tracks:
+
 - Memory usage (resident memory in KB)
 - CPU usage percentage (per-thread)
 - Uptime and sampling count
@@ -102,12 +104,14 @@ python systrace.py --time=10 -o trace.html sched freq idle am wm gfx view sync b
 **Recommended Instruments:**
 
 1. **Time Profiler**
+
    - Record for 60 seconds during active use
    - Filter by "Synheart" or "Behavior" in call tree
    - Look for CPU spikes or hot spots
    - Target: <2% average CPU usage
 
 2. **Allocations**
+
    - Monitor memory allocation patterns
    - Check for memory leaks
    - Verify total allocation stays <500 KB
@@ -136,7 +140,7 @@ fun testSDKPerformance() {
     // Simulate user interactions
     repeat(1000) {
         monitor.recordSnapshot("interaction_$it")
-        // Simulate typing
+        // Simulate user interaction
         behavior.onUserInteraction()
         Thread.sleep(100)
     }
@@ -187,26 +191,31 @@ func testSDKPerformance() {
 ## Performance Testing Scenarios
 
 ### Scenario 1: Idle State
+
 - **Duration**: 5 minutes
 - **Activity**: No user interaction
 - **Expected**: Minimal CPU (<0.1%), stable memory
 
-### Scenario 2: Active Typing
+### Scenario 2: Active Tapping
+
 - **Duration**: 2 minutes
-- **Activity**: Continuous typing (2-3 keys/second)
+- **Activity**: Continuous tapping (2-3 taps/second)
 - **Expected**: CPU <1%, memory stable
 
 ### Scenario 3: Heavy Scrolling
+
 - **Duration**: 2 minutes
 - **Activity**: Continuous fast scrolling
 - **Expected**: CPU <1.5%, memory <450 KB
 
 ### Scenario 4: App Switching
+
 - **Duration**: 5 minutes
 - **Activity**: Frequent foreground/background switches (every 30 seconds)
 - **Expected**: CPU <0.5%, memory stable
 
 ### Scenario 5: Long Session
+
 - **Duration**: 8 hours
 - **Activity**: Normal mixed usage
 - **Expected**: No memory leaks, battery impact <2%
@@ -214,18 +223,21 @@ func testSDKPerformance() {
 ## Performance Optimization Tips
 
 ### Memory Optimization
+
 1. **Event Buffer Limits**: Keep rolling buffers small (max 100 events)
 2. **String Pooling**: Reuse event type strings
 3. **Object Pooling**: Reuse event objects where possible
 4. **Periodic Cleanup**: Clear old data regularly
 
 ### CPU Optimization
+
 1. **Debouncing**: Don't emit events for every single interaction
 2. **Batching**: Batch multiple events before emission
 3. **Async Processing**: Use background queues for calculations
 4. **Sampling**: Sample events rather than capturing everything
 
 ### Battery Optimization
+
 1. **No Timers**: Avoid periodic timers; use event-driven approach
 2. **No GPS**: Don't use location services
 3. **No Network**: Don't make network requests
@@ -236,20 +248,22 @@ func testSDKPerformance() {
 Expected benchmarks on reference devices:
 
 ### Android (Pixel 7)
-| Metric | Value |
-|--------|-------|
-| CPU (idle) | 0.1% |
-| CPU (active) | 0.8% |
-| Memory | 280 KB |
-| Battery (8h) | 1.2% |
+
+| Metric       | Value  |
+| ------------ | ------ |
+| CPU (idle)   | 0.1%   |
+| CPU (active) | 0.8%   |
+| Memory       | 280 KB |
+| Battery (8h) | 1.2%   |
 
 ### iOS (iPhone 14)
-| Metric | Value |
-|--------|-------|
-| CPU (idle) | 0.05% |
-| CPU (active) | 0.6% |
-| Memory | 320 KB |
-| Battery (8h) | 1.0% |
+
+| Metric       | Value  |
+| ------------ | ------ |
+| CPU (idle)   | 0.05%  |
+| CPU (active) | 0.6%   |
+| Memory       | 320 KB |
+| Battery (8h) | 1.0%   |
 
 ## Continuous Performance Monitoring
 
@@ -275,18 +289,22 @@ Add performance tests to CI/CD:
 ## Troubleshooting Performance Issues
 
 ### High CPU Usage
+
 - **Check**: Are you emitting too many events?
 - **Solution**: Increase debounce thresholds, reduce sampling rate
 
 ### High Memory Usage
+
 - **Check**: Are event buffers growing unbounded?
 - **Solution**: Implement stricter buffer limits, clear old data
 
 ### Battery Drain
+
 - **Check**: Are you using timers or periodic checks?
 - **Solution**: Switch to event-driven architecture
 
 ### UI Lag
+
 - **Check**: Are you blocking the main thread?
 - **Solution**: Move processing to background queues
 

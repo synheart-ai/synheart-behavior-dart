@@ -1,4 +1,5 @@
 # Privacy Audit Report
+
 ## Synheart Behavioral SDK for Flutter
 
 **Audit Date**: 2025-01-13
@@ -14,16 +15,16 @@ This privacy audit confirms that the Synheart Behavioral SDK adheres to its priv
 
 ### Audit Findings
 
-| Category | Status | Details |
-|----------|--------|---------|
-| **PII Collection** | ✅ PASS | No PII collected |
-| **Text Content** | ✅ PASS | No text content captured |
-| **Screen Coordinates** | ✅ PASS | No location data collected |
-| **Biometric Data** | ✅ PASS | No biometric data |
-| **Device Identifiers** | ✅ PASS | Session IDs only (ephemeral) |
-| **Network Activity** | ✅ PASS | No network requests |
-| **Storage** | ✅ PASS | In-memory only, no persistence |
-| **Permissions** | ✅ PASS | No special permissions required |
+| Category               | Status  | Details                         |
+| ---------------------- | ------- | ------------------------------- |
+| **PII Collection**     | ✅ PASS | No PII collected                |
+| **Text Content**       | ✅ PASS | No text content captured        |
+| **Screen Coordinates** | ✅ PASS | No location data collected      |
+| **Biometric Data**     | ✅ PASS | No biometric data               |
+| **Device Identifiers** | ✅ PASS | Session IDs only (ephemeral)    |
+| **Network Activity**   | ✅ PASS | No network requests             |
+| **Storage**            | ✅ PASS | In-memory only, no persistence  |
+| **Permissions**        | ✅ PASS | No special permissions required |
 
 ---
 
@@ -31,61 +32,62 @@ This privacy audit confirms that the Synheart Behavioral SDK adheres to its priv
 
 ### 1. Data Collection Analysis
 
-#### 1.1 Keystroke Timing Collection
+#### 1.1 Tap Gesture Collection
 
 **Files Audited:**
-- `android/src/main/java/ai/synheart/behavior/InputSignalCollector.kt`
-- `ios/Classes/InputSignalCollector.swift`
+
+- `lib/src/behavior_gesture_detector.dart`
+- `android/src/main/java/ai/synheart/behavior/GestureCollector.kt`
+- `ios/Classes/GestureCollector.swift`
 
 **What is Collected:**
-- ✅ Inter-key latency (time between keystrokes in milliseconds)
-- ✅ Typing burst length (number of consecutive keystrokes)
-- ✅ Typing cadence (keys per second)
-- ✅ Variance in typing speed
+
+- ✅ Tap duration (time between tap down and tap up in milliseconds)
+- ✅ Long press detection (taps longer than 500ms)
+- ✅ Tap timing patterns
 
 **What is NOT Collected:**
-- ❌ No keystroke characters
+
+- ❌ No tap coordinates (X, Y positions)
 - ❌ No text content
 - ❌ No field names or identifiers
 - ❌ No clipboard data
+- ❌ No keystroke content (typing is not tracked)
 
 **Privacy Verification:**
 
-**Android (InputSignalCollector.kt:1-119):**
-```kotlin
-// Line 14-23: TextWatcher only tracks timing
-override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-    if (count > 0) { // Character added
-        onKeystroke()  // Only timing, NO character content
-    }
-}
+**Flutter (behavior_gesture_detector.dart):**
+
+```dart
+// Tap events only include duration and long-press flag
+BehaviorEvent.tap(
+  sessionId: sessionId,
+  tapDurationMs: durationMs,
+  longPress: isLongPress,
+)
+// No coordinates, no content, only timing
 ```
 
-**iOS (InputSignalCollector.swift:1-193):**
-```swift
-// Line 82-85: Notification observer for text changes
-@objc private func textDidChange(_ notification: Notification) {
-    onKeystroke()  // Only timing, NO text content
-}
-```
-
-✅ **CONFIRMED**: No text content is captured or stored.
+✅ **CONFIRMED**: No text content, coordinates, or keystroke data is captured or stored.
 
 ---
 
 #### 1.2 Scroll Dynamics Collection
 
 **Files Audited:**
+
 - `android/src/main/java/ai/synheart/behavior/GestureCollector.kt`
 - `ios/Classes/GestureCollector.swift`
 
 **What is Collected:**
+
 - ✅ Scroll velocity (pixels per second)
 - ✅ Scroll acceleration (change in velocity)
 - ✅ Scroll jitter (variance in velocity)
 - ✅ Scroll stop events (timing only)
 
 **What is NOT Collected:**
+
 - ❌ No scroll position coordinates
 - ❌ No screen content
 - ❌ No viewport size
@@ -94,6 +96,7 @@ override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int
 **Privacy Verification:**
 
 **Android (GestureCollector.kt:113-155):**
+
 ```kotlin
 // Line 130: Only velocity magnitude is calculated
 val velocity = abs(dy - lastScrollY) / timeDelta.toDouble() * 1000.0
@@ -101,6 +104,7 @@ val velocity = abs(dy - lastScrollY) / timeDelta.toDouble() * 1000.0
 ```
 
 **iOS (GestureCollector.swift:141-176):**
+
 ```swift
 // Line 149: Only offset delta, not absolute position
 let offsetDelta = abs(scrollView.contentOffset.y - lastScrollOffset)
@@ -115,16 +119,19 @@ let velocity = Double(offsetDelta) / timeDelta * 1000.0
 #### 1.3 Gesture Activity Collection
 
 **Files Audited:**
+
 - `android/src/main/java/ai/synheart/behavior/GestureCollector.kt`
 - `ios/Classes/GestureCollector.swift`
 
 **What is Collected:**
+
 - ✅ Tap rate (taps per second)
 - ✅ Long press count
 - ✅ Drag velocity (magnitude only)
 - ✅ Gesture timing
 
 **What is NOT Collected:**
+
 - ❌ No tap coordinates (X, Y positions)
 - ❌ No touch pressure data
 - ❌ No finger size/shape
@@ -133,6 +140,7 @@ let velocity = Double(offsetDelta) / timeDelta * 1000.0
 **Privacy Verification:**
 
 **Android (GestureCollector.kt:47-81):**
+
 ```kotlin
 // Line 59-66: Only timing tracked
 val duration = System.currentTimeMillis() - dragStartTime
@@ -145,6 +153,7 @@ if (duration > 500) {
 ```
 
 **iOS (GestureCollector.swift:91-105):**
+
 ```swift
 // Line 94-98: Only timestamp recorded
 let now = Date().timeIntervalSince1970 * 1000
@@ -158,16 +167,19 @@ tapTimestamps.append(now)  // Time only, NO coordinates
 #### 1.4 App Lifecycle & Attention Signals
 
 **Files Audited:**
+
 - `android/src/main/java/ai/synheart/behavior/AttentionSignalCollector.kt`
 - `ios/Classes/AttentionSignalCollector.swift`
 
 **What is Collected:**
+
 - ✅ Foreground/background state transitions
 - ✅ Foreground duration (time in milliseconds)
 - ✅ App switch count
 - ✅ Idle gap detection (timing only)
 
 **What is NOT Collected:**
+
 - ❌ No app names or identifiers
 - ❌ No package names of other apps
 - ❌ No notification content
@@ -176,6 +188,7 @@ tapTimestamps.append(now)  // Time only, NO coordinates
 **Privacy Verification:**
 
 **Android (AttentionSignalCollector.kt:54-74):**
+
 ```kotlin
 // Line 64-73: Only direction and timing recorded
 emitAppSwitch(direction: "foreground", duration: backgroundDuration)
@@ -183,6 +196,7 @@ emitAppSwitch(direction: "foreground", duration: backgroundDuration)
 ```
 
 **iOS (AttentionSignalCollector.swift:85-108):**
+
 ```swift
 // Line 98-105: Only state and duration
 emitAppSwitch(direction: "foreground", duration: backgroundDuration)
@@ -198,10 +212,12 @@ emitAppSwitch(direction: "foreground", duration: backgroundDuration)
 #### 2.1 In-Memory Storage Only
 
 **Files Audited:**
-- All collector classes (`InputSignalCollector`, `GestureCollector`, etc.)
+
+- All collector classes (`GestureCollector`, `AttentionSignalCollector`, etc.)
 
 **Findings:**
-- ✅ All data stored in memory only (LinkedList, ConcurrentHashMap, Arrays)
+
+- ✅ All data stored in memory only (Lists, Maps, Arrays)
 - ✅ No file system writes
 - ✅ No database storage
 - ✅ No SharedPreferences/UserDefaults usage
@@ -209,26 +225,12 @@ emitAppSwitch(direction: "foreground", duration: backgroundDuration)
 
 **Code Examples:**
 
-**Android:**
-```kotlin
-// InputSignalCollector.kt:19
-private val keystrokeTimestamps = LinkedList<Long>()
+**Flutter:**
 
-// Line 30-31: Automatic cleanup
-while (keystrokeTimestamps.size > 100) {
-    keystrokeTimestamps.removeFirst()  // Keep only recent data
-}
-```
-
-**iOS:**
-```swift
-// InputSignalCollector.swift:13
-private var keystrokeTimestamps: [Double] = []
-
-// Line 100-102: Automatic cleanup
-if keystrokeTimestamps.count > 100 {
-    keystrokeTimestamps.removeFirst()  // Ephemeral storage
-}
+```dart
+// Events stored in memory only, no persistence
+final List<BehaviorEvent> _events = [];
+// Events are automatically cleaned up when session ends
 ```
 
 ✅ **CONFIRMED**: No persistent storage, all data is ephemeral.
@@ -238,9 +240,11 @@ if keystrokeTimestamps.count > 100 {
 #### 2.2 Network Transmission
 
 **Files Audited:**
+
 - All SDK files
 
 **Findings:**
+
 - ✅ No network API calls
 - ✅ No HTTP/HTTPS requests
 - ✅ No socket connections
@@ -248,6 +252,7 @@ if keystrokeTimestamps.count > 100 {
 - ✅ All processing is local
 
 **Verification:**
+
 ```bash
 # Search for network-related imports/classes
 grep -r "HttpURLConnection\|URLSession\|Retrofit\|Alamofire" android/ ios/
@@ -267,9 +272,11 @@ grep -r "HttpURLConnection\|URLSession\|Retrofit\|Alamofire" android/ ios/
 **Declared Permissions:** None
 
 **Implicit Permissions Used:**
+
 - None (Activity lifecycle callbacks are standard, no permission needed)
 
 **Not Required:**
+
 - ❌ INTERNET
 - ❌ READ_EXTERNAL_STORAGE
 - ❌ WRITE_EXTERNAL_STORAGE
@@ -289,6 +296,7 @@ grep -r "HttpURLConnection\|URLSession\|Retrofit\|Alamofire" android/ ios/
 **Required Permissions:** None
 
 **Not Required:**
+
 - ❌ NSLocationWhenInUseUsageDescription
 - ❌ NSCameraUsageDescription
 - ❌ NSMicrophoneUsageDescription
@@ -302,11 +310,13 @@ grep -r "HttpURLConnection\|URLSession\|Retrofit\|Alamofire" android/ ios/
 ### 4. Session Identifier Analysis
 
 **Files Audited:**
+
 - `lib/src/synheart_behavior.dart`
 - `android/src/main/java/ai/synheart/behavior/BehaviorSDK.kt`
 - `ios/Classes/BehaviorSDK.swift`
 
 **Session ID Format:**
+
 ```dart
 // lib/src/synheart_behavior.dart:84
 final sessionIdToUse = sessionId ??
@@ -314,6 +324,7 @@ final sessionIdToUse = sessionId ??
 ```
 
 **Characteristics:**
+
 - ✅ Ephemeral (generated per session)
 - ✅ Time-based, not device-based
 - ✅ No device identifiers (IMEI, MAC address, etc.)
@@ -321,6 +332,7 @@ final sessionIdToUse = sessionId ??
 - ✅ Can be customized by developer
 
 **Privacy Assessment:**
+
 - Session IDs are **NOT** persistent device identifiers
 - They **CANNOT** be used to track users across sessions
 - They are **LOCAL** to the app instance
@@ -334,6 +346,7 @@ final sessionIdToUse = sessionId ??
 **Files Audited:** `pubspec.yaml`, Android `build.gradle`, iOS `Podfile`
 
 **Flutter Dependencies:**
+
 ```yaml
 dependencies:
   flutter:
@@ -341,6 +354,7 @@ dependencies:
 ```
 
 **Native Dependencies:**
+
 - Android: None (only standard Android SDK)
 - iOS: None (only standard iOS frameworks)
 
@@ -352,15 +366,15 @@ dependencies:
 
 #### 6.1 GDPR Compliance (EU)
 
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| **Lawful Basis** | ✅ PASS | Legitimate interest (app functionality) |
-| **Data Minimization** | ✅ PASS | Only timing metrics collected |
-| **Purpose Limitation** | ✅ PASS | Data used only for behavioral analysis |
-| **Storage Limitation** | ✅ PASS | In-memory only, automatic cleanup |
-| **Right to Erasure** | ✅ PASS | Data cleared on session end/app close |
-| **Data Portability** | ✅ PASS | Data available via getCurrentStats() |
-| **Privacy by Design** | ✅ PASS | Privacy-first architecture |
+| Requirement            | Status  | Notes                                   |
+| ---------------------- | ------- | --------------------------------------- |
+| **Lawful Basis**       | ✅ PASS | Legitimate interest (app functionality) |
+| **Data Minimization**  | ✅ PASS | Only timing metrics collected           |
+| **Purpose Limitation** | ✅ PASS | Data used only for behavioral analysis  |
+| **Storage Limitation** | ✅ PASS | In-memory only, automatic cleanup       |
+| **Right to Erasure**   | ✅ PASS | Data cleared on session end/app close   |
+| **Data Portability**   | ✅ PASS | Data available via getCurrentStats()    |
+| **Privacy by Design**  | ✅ PASS | Privacy-first architecture              |
 
 **GDPR Assessment**: ✅ **COMPLIANT**
 
@@ -368,13 +382,13 @@ dependencies:
 
 #### 6.2 CCPA Compliance (California)
 
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| **Personal Information** | ✅ PASS | No PI collected |
-| **Sale of Data** | ✅ PASS | No data sold or shared |
-| **Right to Know** | ✅ PASS | Transparent about data collection |
-| **Right to Delete** | ✅ PASS | Automatic deletion on session end |
-| **Opt-Out** | ✅ PASS | Can disable SDK features via config |
+| Requirement              | Status  | Notes                               |
+| ------------------------ | ------- | ----------------------------------- |
+| **Personal Information** | ✅ PASS | No PI collected                     |
+| **Sale of Data**         | ✅ PASS | No data sold or shared              |
+| **Right to Know**        | ✅ PASS | Transparent about data collection   |
+| **Right to Delete**      | ✅ PASS | Automatic deletion on session end   |
+| **Opt-Out**              | ✅ PASS | Can disable SDK features via config |
 
 **CCPA Assessment**: ✅ **COMPLIANT**
 
@@ -382,11 +396,11 @@ dependencies:
 
 #### 6.3 COPPA Compliance (Children's Privacy)
 
-| Requirement | Status | Notes |
-|-------------|--------|-------|
-| **Parental Consent** | ✅ PASS | No PII collected, consent not required |
-| **Data Collection** | ✅ PASS | No child-specific data |
-| **Third-Party Disclosure** | ✅ PASS | No third-party sharing |
+| Requirement                | Status  | Notes                                  |
+| -------------------------- | ------- | -------------------------------------- |
+| **Parental Consent**       | ✅ PASS | No PII collected, consent not required |
+| **Data Collection**        | ✅ PASS | No child-specific data                 |
+| **Third-Party Disclosure** | ✅ PASS | No third-party sharing                 |
 
 **COPPA Assessment**: ✅ **COMPLIANT**
 
@@ -397,6 +411,7 @@ dependencies:
 **ATT Framework Required?** ❌ NO
 
 **Rationale:**
+
 - SDK does not track users across apps/websites
 - No device identifier collection
 - No data broker sharing
@@ -411,6 +426,7 @@ dependencies:
 **Compliance:** ✅ **COMPATIBLE**
 
 **Assessment:**
+
 - No use of advertising IDs
 - No cross-app tracking
 - Local processing only
@@ -424,12 +440,11 @@ dependencies:
 
 #### Identified Risks
 
-| Risk | Severity | Mitigation | Status |
-|------|----------|------------|--------|
-| **Keystroke timing profiling** | LOW | Timing data alone cannot infer text content | ✅ Mitigated |
-| **Behavioral fingerprinting** | LOW | No cross-session tracking, ephemeral IDs | ✅ Mitigated |
-| **Memory inspection** | LOW | In-memory data cleared on session end | ✅ Mitigated |
-| **Event replay attacks** | LOW | No authentication, events are timestamped | ✅ Mitigated |
+| Risk                          | Severity | Mitigation                                | Status       |
+| ----------------------------- | -------- | ----------------------------------------- | ------------ |
+| **Behavioral fingerprinting** | LOW      | No cross-session tracking, ephemeral IDs  | ✅ Mitigated |
+| **Memory inspection**         | LOW      | In-memory data cleared on session end     | ✅ Mitigated |
+| **Event replay attacks**      | LOW      | No authentication, events are timestamped | ✅ Mitigated |
 
 **Overall Risk Level:** 🟢 **LOW**
 
@@ -449,7 +464,7 @@ dependencies:
 ```dart
 // Provide user control
 final config = BehaviorConfig(
-  enableInputSignals: userAcceptsKeystrokes,  // User consent
+  enableInputSignals: userAcceptsGestures,  // User consent for tap/scroll/swipe
   enableAttentionSignals: userAcceptsLifecycle,  // User consent
   enableMotionLite: false,  // Disabled by default
 );
@@ -461,7 +476,7 @@ final behavior = await SynheartBehavior.initialize(config: config);
 
 ```
 Our app uses behavioral analytics to improve your experience. We collect:
-- Keystroke timing (not text content)
+- Tap timing patterns (not tap locations)
 - Scroll patterns (not screen coordinates)
 - App usage patterns (not other apps)
 
@@ -470,6 +485,7 @@ We DO NOT collect:
 ❌ Tap locations
 ❌ Personal information
 ❌ Device identifiers
+❌ Keystroke content
 
 All data is processed locally on your device and never leaves your device.
 ```
@@ -540,11 +556,13 @@ The Synheart Behavioral SDK demonstrates **exceptional privacy protection**. The
 ### Privacy Score: 98/100
 
 **Deductions:**
+
 - -2 points: Behavioral timing patterns could theoretically be used for fingerprinting (mitigated by ephemeral sessions)
 
 ### Certification
 
 This SDK is **CERTIFIED PRIVACY-SAFE** for:
+
 - ✅ Consumer apps
 - ✅ Enterprise apps
 - ✅ Healthcare apps (with proper consent)
@@ -556,7 +574,7 @@ This SDK is **CERTIFIED PRIVACY-SAFE** for:
 ## Appendix: Privacy Checklist
 
 - [x] No text content captured
-- [x] No keystroke characters logged
+- [x] No keystroke tracking (typing is not tracked)
 - [x] No screen coordinates collected
 - [x] No biometric data
 - [x] No location data

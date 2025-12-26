@@ -29,6 +29,7 @@ public class BehaviorSDK {
     // Device context tracking
     private var startScreenBrightness: CGFloat = 0.5
     private var startOrientation: UIDeviceOrientation = .portrait
+    private var lastOrientation: UIDeviceOrientation = .portrait // Track last orientation to detect all changes
     private var orientationChangeCount: Int = 0
     
     // System state tracking
@@ -116,9 +117,13 @@ public class BehaviorSDK {
         let now = Date()
         let nowMs = now.timeIntervalSince1970 * 1000
         
+        // Reset app switch count for new session
+        attentionSignalCollector.resetAppSwitchCount()
+        
         // Capture device context at session start
         startScreenBrightness = getScreenBrightness()
         startOrientation = UIDevice.current.orientation
+        lastOrientation = startOrientation // Initialize last orientation to start orientation
         orientationChangeCount = 0
         
         // Capture system state at session start
@@ -126,7 +131,7 @@ public class BehaviorSDK {
         startDoNotDisturb = isDoNotDisturbEnabled()
         startCharging = isCharging()
         
-        // Calculate session spacing (time since last app use)
+        // Calculate session spacing (time between end of previous session and start of current session)
         let sessionSpacing: Double
         if let lastUse = lastAppUseTime {
             sessionSpacing = (now.timeIntervalSince1970 - lastUse.timeIntervalSince1970) * 1000
@@ -149,7 +154,7 @@ public class BehaviorSDK {
         print("BehaviorSDK.startSession: Session data for \(sessionId): eventCount=\(sessionData[sessionId]?.eventCount ?? -1)")
         
         lastInteractionTime = now
-        lastAppUseTime = now
+        // Don't update lastAppUseTime here - it will be updated when session ends
         
         // Register for orientation change notifications
         NotificationCenter.default.addObserver(
@@ -162,12 +167,18 @@ public class BehaviorSDK {
     
     @objc private func orientationDidChange() {
         let currentOrientation = UIDevice.current.orientation
-        if currentOrientation != startOrientation && currentOrientation.isValidInterfaceOrientation {
+        // Count orientation changes by comparing with last orientation, not just start orientation
+        // This ensures we count all changes (portrait->landscape->portrait = 2 changes)
+        if currentOrientation != lastOrientation && 
+           currentOrientation.isValidInterfaceOrientation &&
+           currentSessionId != nil {
             orientationChangeCount += 1
+            lastOrientation = currentOrientation // Update last orientation
             if let sessionId = currentSessionId, var data = sessionData[sessionId] {
                 data.orientationChangeCount = orientationChangeCount
                 sessionData[sessionId] = data
             }
+            print("BehaviorSDK: Orientation changed: count=\(orientationChangeCount), current=\(currentOrientation.rawValue)")
         }
     }
     
@@ -229,6 +240,10 @@ public class BehaviorSDK {
         }
 
         data.endTime = Date().timeIntervalSince1970 * 1000
+        
+        // Update lastAppUseTime to session end time for next session's spacing calculation
+        // Session spacing = time between end_session and start_session
+        lastAppUseTime = Date(timeIntervalSince1970: data.endTime / 1000)
         
         let duration = data.endTime - data.startTime
         let durationSeconds = duration / 1000.0
@@ -431,7 +446,7 @@ public class BehaviorSDK {
         
         // Step 12: Compute deep_focus_block = continuous app engagement ≥ 120s without
         // idle, app switch, notification or call event
-        let deepFocusBlocks = computeDeepFocusBlocks(events: data.events, durationMs: durationMs, notificationCount: notificationCount, callCount: callCount, appSwitchCount: data.appSwitchCount)
+        let deepFocusBlocks = computeDeepFocusBlocks(events: data.events, durationMs: durationMs, sessionStartTime: data.startTime, sessionEndTime: data.endTime, notificationCount: notificationCount, callCount: callCount, appSwitchCount: data.appSwitchCount)
         
         return [
             "interaction_intensity": interactionIntensity,
@@ -552,7 +567,7 @@ public class BehaviorSDK {
         return burstiness
     }
     
-    private func computeDeepFocusBlocks(events: [BehaviorEvent], durationMs: Int64, notificationCount: Int, callCount: Int, appSwitchCount: Int) -> [[String: Any]] {
+    private func computeDeepFocusBlocks(events: [BehaviorEvent], durationMs: Int64, sessionStartTime: Double, sessionEndTime: Double, notificationCount: Int, callCount: Int, appSwitchCount: Int) -> [[String: Any]] {
         // Deep focus block = continuous app engagement ≥ 120s without
         // idle, app switch, notification or call event
         var deepFocusBlocks: [[String: Any]] = []
@@ -566,9 +581,11 @@ public class BehaviorSDK {
         let idleThresholdMs: Double = 30000 // 30 seconds
         var blockStart: Date? = nil
         var blockEnd: Date? = nil
+        var lastBlockEndTime: Date? = nil // Track when last block ended
+        let sessionStartDate = Date(timeIntervalSince1970: sessionStartTime / 1000)
         
-        // Filter out interruption events (notifications, calls)
-        let interruptionEventTypes = Set(["notification", "call"])
+        // Filter out interruption events (notifications, calls, app switches)
+        let interruptionEventTypes = Set(["notification", "call", "app_switch"])
         
         for i in 0..<events.count {
             guard let currDate = formatter.date(from: events[i].timestamp) else {
@@ -583,7 +600,8 @@ public class BehaviorSDK {
             if i > 0, let prevDate = formatter.date(from: events[i - 1].timestamp) {
                 gap = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
             } else {
-                gap = 0
+                // First event - check gap from session start
+                gap = (currDate.timeIntervalSince1970 - sessionStartDate.timeIntervalSince1970) * 1000
             }
             
             // If we hit an interruption or idle gap, end current block
@@ -598,24 +616,50 @@ public class BehaviorSDK {
                         ])
                     }
                 }
+                lastBlockEndTime = isInterruption ? currDate : blockEnd
                 blockStart = nil
                 blockEnd = nil
             } else {
                 // Continue or start a focus block
                 if blockStart == nil {
-                    blockStart = currDate
+                    // Starting a new block - check if we should start from session start or previous block end
+                    if i == 0 && gap <= idleThresholdMs {
+                        // First event and close to session start - start from session start
+                        blockStart = sessionStartDate
+                    } else if let lastEnd = lastBlockEndTime, (currDate.timeIntervalSince1970 - lastEnd.timeIntervalSince1970) * 1000 <= idleThresholdMs {
+                        // Close to previous block end - start from previous block end
+                        blockStart = lastEnd
+                    } else {
+                        // Start from current event time
+                        blockStart = currDate
+                    }
                 }
                 blockEnd = currDate
             }
         }
         
-        // Check final block
+        // Check final block - include time from last event to session end if recent
         if let start = blockStart, let end = blockEnd {
-            let blockDuration = (end.timeIntervalSince1970 - start.timeIntervalSince1970) * 1000
+            // Get the last event time in the block (in milliseconds since 1970)
+            let lastEventTime = end.timeIntervalSince1970 * 1000
+            
+            // If last event was recent (within idle threshold of session end), extend to session end
+            // This ensures we count engagement time even if no events were generated at the end
+            let timeFromLastEventToSessionEnd = sessionEndTime - lastEventTime
+            let finalBlockEnd: Date
+            if timeFromLastEventToSessionEnd <= idleThresholdMs {
+                // Last event was recent, include time up to session end
+                finalBlockEnd = Date(timeIntervalSince1970: sessionEndTime / 1000)
+            } else {
+                // Last event was too long ago, use event timestamp
+                finalBlockEnd = end
+            }
+            
+            let blockDuration = (finalBlockEnd.timeIntervalSince1970 - start.timeIntervalSince1970) * 1000
             if blockDuration >= minBlockDurationMs {
                 deepFocusBlocks.append([
                     "start_at": formatter.string(from: start),
-                    "end_at": formatter.string(from: end),
+                    "end_at": formatter.string(from: finalBlockEnd),
                     "duration_ms": Int(blockDuration)
                 ])
             }
