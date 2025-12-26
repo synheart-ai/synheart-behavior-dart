@@ -2,7 +2,7 @@
 
 [![pub.dev](https://img.shields.io/pub/v/synheart_behavior.svg)](https://pub.dev/packages/synheart_behavior)
 
-A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. These timing-based signals represent biobehavioral markers correlated with cognitive and emotional states, especially focus, stress, engagement, and fatigue.
+A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. The SDK will help you to transforms low-level digital interaction events into structured numerical representations of behavior across event and session. By modeling interaction timing, intensity, fragmentation, and interruption patterns without collecting content or personal data, the SDK provides stable, interpretable metrics to represent digital behavior.
 
 ## Features
 
@@ -204,7 +204,14 @@ Each event includes:
 
 ## Permissions
 
-**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking.
+**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking. 
+
+No content-level information is ever collected or stored. For notifications, the SDK does not record notification text, sender identity, application source, or semantic meaning. For phone calls, the SDK does not record audio, voice data, call content, or call participants.
+
+Instead, the SDK records only event-level metadata, such as:
+- the occurrence of a notification or call,
+- the timestamp of the event,
+- and the user’s interaction outcome (e.g., opened, dismissed, ignored).
 
 ### Notification Permission
 
@@ -230,7 +237,7 @@ if (!hasPermission) {
 
 ### Call Permission
 
-Required for tracking call interactions (answered, ignored, dismissed).
+Required for tracking call interactions (answered and ignored).
 
 **Android**: Requires `READ_PHONE_STATE` permission  
 **iOS**: No explicit permission needed (uses system callbacks)
@@ -370,7 +377,6 @@ behavior.createBehaviorTextField(
 )
 ```
 
-**Note**: The SDK does not track typing/keystroke content. Text field interactions are captured as tap events with timing metrics only.
 
 ### Custom Event Sending
 
@@ -402,15 +408,79 @@ void dispose() {
 
 ## Privacy & Compliance
 
-- ✅ **No PII collected**: Only timing-based signals, no personal information
-- ✅ **No keystroke tracking**: Typing is not tracked; text field interactions are captured as tap events only
-- ✅ **No screen capture**: No screenshots or screen recording
-- ✅ **No app content**: No access to app UI content or data
-- ✅ **Fully local processing**: All processing happens on-device
-- ✅ **No persistent storage**: Data stored only in memory
-- ✅ **No network transmission**: Zero network activity
-- ✅ **GDPR/CCPA-ready**: Compliant with privacy regulations
-- ✅ **iOS App Tracking Transparency not required**: No user tracking across apps
+The Synheart SDK is designed around privacy-by-design and data minimization principles. It captures only the minimum interaction metadata required to model digital behavior, without accessing personal, semantic, or content-level information.
+
+**Data Collection Guarantees**
+
+✅ No personal identifiable information (PII)
+The SDK does not collect names, contacts, account identifiers, message content, or any user-identifying data. All signals are timing-based and structural.
+
+✅ No content capture
+The SDK does not collect:
+- notification text, titles, or sender identity
+- call audio, voice data, or call participants
+- application UI content or screen data
+
+✅ No keystroke or text logging
+Text input is never recorded. Interactions with text fields are captured only as abstract tap events (timing and duration only), without any character-level data.
+
+✅ No screen recording or screenshots
+The SDK does not access the screen buffer, screenshots, or any form of visual capture.
+
+✅ Permission-scoped tracking only
+Behavioral data is collected exclusively from applications that explicitly receive user permission.
+The SDK does not monitor, infer, or aggregate behavior across the entire device or across unpermitted applications.
+
+✅ Event-level metadata only
+Collected data is limited to:
+- event type (e.g., tap, scroll, swipe, notification, call)
+- timestamp
+- non-semantic physical metrics (e.g., duration, velocity)
+No semantic interpretation is performed at the data collection stage.
+
+**Connectivity & System Access**
+
+✅ No internet connectivity required for operation
+The SDK functions fully offline and does not require an active internet connection to perform behavioral capture or inference.
+
+✅ Network availability state only (no data transmission)
+The SDK may record a binary system-level indicator of whether network connectivity (e.g., internet available / unavailable) is present at a given time.
+This signal:
+- does not include network traffic, destinations, IPs, or content
+- does not trigger any data transmission
+- is used solely as contextual metadata for behavioral interpretation (e.g., offline usage patterns)
+
+✅ No Bluetooth or external connectivity required
+The SDK does not depend on Bluetooth, NFC, or communication with external devices.
+
+✅ No background network communication
+Behavioral computation and aggregation occur locally without initiating network requests.
+Any optional data transmission (e.g., for research or cloud aggregation) is explicitly controlled, consent-gated, and configurable.
+
+
+
+**Processing & Storage**
+
+✅ On-device computation by default
+Behavioral features and metrics are computed locally on the device whenever possible, minimizing data exposure.
+
+✅ Ephemeral data handling
+Raw interaction events are processed in-memory and are not persisted in long-term storage unless explicitly configured for research or debugging purposes.
+
+✅ No third-party data sharing
+The SDK does not share raw or derived behavioral data with advertisers, analytics providers, or external third parties.
+
+**Regulatory Alignment**
+
+✅ GDPR / CCPA aligned
+The SDK adheres to the principles of:
+- data minimization
+- purpose limitation
+- user consent
+- transparency
+
+✅ App Tracking Transparency (ATT) not required
+The SDK does not track users across apps, services, or companies and does not perform cross-app or cross-device identification.
 
 ## Platform Support
 
