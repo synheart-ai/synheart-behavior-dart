@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' as math;
+// import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'models/behavior_event.dart';
 import 'synheart_behavior.dart' show SynheartBehavior;
@@ -49,7 +49,6 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
 
   // Velocity tracking for native velocity calculation
   DateTime? _lastVelocityTime;
-  double _lastScrollDelta = 0.0;
 
   // Tap tracking
   DateTime? _tapDownTime;
@@ -217,7 +216,6 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
             scrollDelta > 0 ? ScrollDirection.down : ScrollDirection.up;
         // Initialize velocity tracking
         _lastVelocityTime = now;
-        _lastScrollDelta = scrollDelta;
         print(
             '📜 Scroll started: direction=$_scrollDirection, delta=$scrollDelta, startPos=$_scrollStartPosition, currentPos=$currentPosition, endPos=$_scrollEndPosition');
       }
@@ -294,9 +292,6 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
         if (timeDelta > 0 && scrollDelta.abs() > 0.01) {
           // Instantaneous velocity in pixels per second (native calculation method)
           // This mimics what Flutter's ScrollMetrics and native scroll views do internally
-          final instantaneousVelocity =
-              scrollDelta.abs() / (timeDelta / 1000.0);
-          _lastScrollDelta = scrollDelta;
         }
       }
       _lastVelocityTime = now;
@@ -313,8 +308,6 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
     _scrollStopTimer?.cancel();
     _scrollStopTimer =
         Timer(const Duration(milliseconds: _scrollStopThresholdMs), () {
-      print(
-          '⏰ Scroll timer expired - finalizing scroll (reversal=$_hasDirectionReversal)');
       _finalizeScroll();
     });
   }
@@ -416,7 +409,6 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
 
     // Reset velocity tracking
     _lastVelocityTime = null;
-    _lastScrollDelta = 0.0;
 
     // Mark scroll as finalized (but keep state for potential continuation)
     _lastScrollFinalizedTime = DateTime.now();
@@ -459,8 +451,9 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
     final delta = currentPosition - _swipeStartPosition!;
     final distance = delta.distance;
 
-    // If movement is significant, treat as swipe
-    if (distance > _swipeThresholdPx) {
+    // Only treat as swipe if movement is significant AND primarily horizontal
+    // Check if horizontal movement is greater than vertical movement
+    if (distance > _swipeThresholdPx && delta.dx.abs() > delta.dy.abs()) {
       _isSwipe = true;
       _hasSwipedSinceTapDown = true; // Mark that swipe occurred during tap
     }
@@ -491,18 +484,11 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
       final acceleration =
           durationMs > 100 ? (velocity / (durationMs / 1000.0)) : 0.0;
 
-      // Determine swipe direction
-      final angle = math.atan2(delta.dy, delta.dx);
+      // Determine swipe direction (horizontal only: left or right)
       SwipeDirection direction;
-      if (angle.abs() < math.pi / 4) {
-        direction = SwipeDirection.right;
-      } else if (angle.abs() > 3 * math.pi / 4) {
-        direction = SwipeDirection.left;
-      } else if (angle > 0) {
-        direction = SwipeDirection.down;
-      } else {
-        direction = SwipeDirection.up;
-      }
+      // Right swipe: positive x direction
+      // Left swipe: negative x direction
+      direction = (delta.dx > 0) ? SwipeDirection.right : SwipeDirection.left;
 
       _emitSwipeEvent(
         direction: direction,

@@ -1026,9 +1026,6 @@ data class SessionSummary(
 }
 
 data class BehaviorStats(
-        val typingCadence: Double? = null,
-        val interKeyLatency: Double? = null,
-        val burstLength: Int? = null,
         val scrollVelocity: Double? = null,
         val scrollAcceleration: Double? = null,
         val scrollJitter: Double? = null,
@@ -1042,9 +1039,6 @@ data class BehaviorStats(
 ) {
     fun toMap(): Map<String, Any?> =
             mapOf(
-                    "typing_cadence" to typingCadence,
-                    "inter_key_latency" to interKeyLatency,
-                    "burst_length" to burstLength,
                     "scroll_velocity" to scrollVelocity,
                     "scroll_acceleration" to scrollAcceleration,
                     "scroll_jitter" to scrollJitter,

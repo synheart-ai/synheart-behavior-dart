@@ -570,8 +570,8 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                           const SizedBox(height: 8),
-                          _buildStatRow('Typing Cadence',
-                              _currentStats!.typingCadence?.toStringAsFixed(2)),
+                          // _buildStatRow('Typing Cadence',
+                          //     _currentStats!.typingCadence?.toStringAsFixed(2)),
                           _buildStatRow(
                               'Scroll Velocity',
                               _currentStats!.scrollVelocity

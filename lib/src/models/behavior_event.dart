@@ -7,18 +7,14 @@ enum BehaviorEventType {
   call,
 }
 
-/// Scroll direction enum
+/// Scroll direction enum (vertical scrolling only)
 enum ScrollDirection {
   up,
   down,
-  left,
-  right,
 }
 
-/// Swipe direction enum
+/// Swipe direction enum (horizontal swipes only)
 enum SwipeDirection {
-  up,
-  down,
   left,
   right,
 }
