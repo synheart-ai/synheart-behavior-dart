@@ -355,8 +355,11 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val behavioralMetrics =
                 computeBehavioralMetrics(data, duration, notificationCount, callCount)
 
+        // Compute typing session summary
+        val typingSessionSummary = computeTypingSessionSummary(data, duration)
+
         // Build comprehensive summary
-        val summary =
+        val summaryBase =
                 mapOf(
                         "session_id" to sessionId,
                         "start_at" to Instant.ofEpochMilli(data.startTime).toString(),
@@ -395,6 +398,14 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                         "charging" to endCharging
                                 )
                 )
+
+        // Add typing session summary if available
+        val summary =
+                if (typingSessionSummary.isNotEmpty()) {
+                    summaryBase + mapOf("typing_session_summary" to typingSessionSummary)
+                } else {
+                    summaryBase
+                }
 
         sessionData.remove(sessionId)
         return summary
@@ -512,17 +523,40 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         // Step 10: Compute focus_hint = 1 - distraction_score
         val focusHint = 1.0 - behavioralDistractionScore
 
-        // Step 11: Compute interaction_intensity = total_events_except_interruptions /
-        // session_duration
+        // Step 11: Compute interaction_intensity = [total events except interruptions and typing +
+        // (Typing durations/10s)] / session_duration
         // Interruptions = notifications, calls, app switches
+        // Typing events are handled separately: we add (total_typing_duration_seconds / 10) instead
+        // of counting typing events
         val interruptionCount = notificationCount + callCount + data.appSwitchCount
-        val totalEventsExceptInterruptions = data.eventCount - interruptionCount
+
+        // Count typing events to exclude them from event count
+        val typingEvents = data.events.filter { it.eventType == "typing" }
+        val typingEventCount = typingEvents.size
+
+        // Calculate total typing duration in seconds (sum of all typing session durations)
+        val totalTypingDurationSeconds =
+                if (typingEvents.isNotEmpty()) {
+                    typingEvents
+                            .mapNotNull { event -> (event.metrics["duration"] as? Number)?.toInt() }
+                            .sum()
+                            .toDouble()
+                } else {
+                    0.0
+                }
+
+        // Total events excluding interruptions and typing events
+        val totalEventsExceptInterruptionsAndTyping =
+                data.eventCount - interruptionCount - typingEventCount
+
+        // Interaction intensity = [non-interruption non-typing events + (typing_duration/10)] /
+        // session_duration
         val interactionIntensity =
                 if (durationSeconds > 0) {
-                    (totalEventsExceptInterruptions / durationSeconds).coerceIn(
-                            0.0,
-                            Double.MAX_VALUE
-                    )
+                    val typingContribution = totalTypingDurationSeconds / 10.0
+                    ((totalEventsExceptInterruptionsAndTyping + typingContribution) /
+                                    durationSeconds)
+                            .coerceIn(0.0, Double.MAX_VALUE)
                 } else 0.0
 
         // Step 12: Compute deep_focus_block = continuous app engagement ≥ 120s without
@@ -629,30 +663,63 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
             return 0.0
         }
 
-        val intervals = mutableListOf<Long>()
+        // Step 1: Calculate all inter-event gaps
+        val gaps = mutableListOf<Pair<Long, Boolean>>() // (gap, involvesTyping)
         for (i in 1 until events.size) {
             try {
                 val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
                 val currTime = Instant.parse(events[i].timestamp).toEpochMilli()
-                val interval = currTime - prevTime
-                intervals.add(interval)
+                val gap = currTime - prevTime
+
+                // Check if this gap involves typing (either previous or current event is typing)
+                val prevIsTyping = events[i - 1].eventType == "typing"
+                val currIsTyping = events[i].eventType == "typing"
+                val involvesTyping = prevIsTyping || currIsTyping
+
+                gaps.add(Pair(gap, involvesTyping))
             } catch (e: Exception) {
                 // Skip invalid timestamps
             }
         }
 
-        if (intervals.size == 0) {
+        if (gaps.isEmpty()) {
             return 0.0
         }
 
-        val mean = intervals.average()
+        // Step 2: Find max gap excluding gaps that involve typing
+        val maxNonTypingGap =
+                gaps
+                        .filter { !it.second } // Only non-typing gaps
+                        .map { it.first } // Get gap values
+                        .maxOrNull()
+                        ?: 0L
+
+        // Step 3: Cap typing gaps at max non-typing gap
+        // If maxNonTypingGap is 0 (no non-typing events), use the gaps as-is
+        val cappedGaps =
+                if (maxNonTypingGap > 0) {
+                    gaps.map { (gap, involvesTyping) ->
+                        if (involvesTyping) {
+                            // Cap typing gaps at max non-typing gap
+                            minOf(gap, maxNonTypingGap)
+                        } else {
+                            gap
+                        }
+                    }
+                } else {
+                    // If all events are typing or no non-typing gaps found, use gaps as-is
+                    gaps.map { it.first }
+                }
+
+        // Step 4: Calculate mean and standard deviation using capped gaps
+        val mean = cappedGaps.average()
 
         // If mean is 0, all intervals are 0 (events at same time) - return 0
         if (mean == 0.0) {
             return 0.0
         }
 
-        val variance = intervals.map { (it - mean) * (it - mean) }.average()
+        val variance = cappedGaps.map { (it - mean) * (it - mean) }.average()
         val stdDev = kotlin.math.sqrt(variance)
 
         // If stdDev is 0, all intervals are identical (perfectly regular) - burstiness should be 0
@@ -660,7 +727,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
             return 0.0
         }
 
-        // Burstiness formula: (σ - μ)/(σ + μ) remapped to [0,1]
+        // Step 5: Apply Barabási's burstiness formula: (σ - μ)/(σ + μ) remapped to [0,1]
         val burstinessRaw = (stdDev - mean) / (stdDev + mean)
         val burstiness = ((burstinessRaw + 1.0) / 2.0).coerceIn(0.0, 1.0)
 
@@ -783,6 +850,169 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         }
 
         return deepFocusBlocks
+    }
+
+    private fun computeTypingSessionSummary(data: SessionData, durationMs: Long): Map<String, Any> {
+        // Extract all typing events
+        val typingEvents = data.events.filter { it.eventType == "typing" }
+
+        if (typingEvents.isEmpty()) {
+            return mapOf(
+                    "typing_session_count" to 0,
+                    "average_keystrokes_per_session" to 0.0,
+                    "average_typing_session_duration" to 0.0,
+                    "average_typing_speed" to 0.0,
+                    "average_typing_gap" to 0.0,
+                    "average_inter_tap_interval" to 0.0,
+                    "typing_cadence_stability" to 0.0,
+                    "burstiness_of_typing" to 0.0,
+                    "total_typing_duration" to 0,
+                    "active_typing_ratio" to 0.0,
+                    "typing_contribution_to_interaction_intensity" to 0.0,
+                    "deep_typing_blocks" to 0,
+                    "typing_fragmentation" to 0.0,
+                    "typing_metrics" to emptyList<Map<String, Any>>()
+            )
+        }
+
+        // Each typing event represents one typing session (from Flutter BehaviorTextField)
+        val typingSessionCount = typingEvents.size
+
+        // Extract metrics from each typing event
+        val sessionMetrics =
+                typingEvents.map { event ->
+                    mapOf(
+                            "typing_tap_count" to
+                                    ((event.metrics["typing_tap_count"] as? Number)?.toInt() ?: 0),
+                            "typing_speed" to
+                                    ((event.metrics["typing_speed"] as? Number)?.toDouble() ?: 0.0),
+                            "duration" to ((event.metrics["duration"] as? Number)?.toInt() ?: 0),
+                            "mean_inter_tap_interval_ms" to
+                                    ((event.metrics["mean_inter_tap_interval_ms"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0),
+                            "typing_cadence_stability" to
+                                    ((event.metrics["typing_cadence_stability"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0),
+                            "typing_gap_ratio" to
+                                    ((event.metrics["typing_gap_ratio"] as? Number)?.toDouble()
+                                            ?: 0.0),
+                            "typing_burstiness" to
+                                    ((event.metrics["typing_burstiness"] as? Number)?.toDouble()
+                                            ?: 0.0),
+                            "deep_typing" to (event.metrics["deep_typing"] as? Boolean ?: false),
+                            "start_at" to (event.metrics["start_at"] as? String ?: ""),
+                            "end_at" to (event.metrics["end_at"] as? String ?: "")
+                    )
+                }
+
+        // Aggregate metrics
+        val averageKeystrokesPerSession =
+                sessionMetrics.map { it["typing_tap_count"] as Int }.average()
+        val averageTypingSessionDuration = sessionMetrics.map { it["duration"] as Int }.average()
+        val averageTypingSpeed = sessionMetrics.map { it["typing_speed"] as Double }.average()
+
+        // Calculate average typing gap from mean_inter_tap_interval_ms
+        val averageTypingGap =
+                sessionMetrics.map { it["mean_inter_tap_interval_ms"] as Double }.average()
+
+        // Calculate average inter-tap interval across all sessions
+        // This is the average of mean_inter_tap_interval_ms for each session
+        val averageInterTapInterval =
+                if (sessionMetrics.isNotEmpty()) {
+                    sessionMetrics.map { it["mean_inter_tap_interval_ms"] as Double }.average()
+                } else {
+                    0.0
+                }
+
+        // Average cadence stability across sessions
+        val typingCadenceStability =
+                sessionMetrics.map { it["typing_cadence_stability"] as Double }.average()
+
+        // Average burstiness across sessions
+        val burstinessOfTyping = sessionMetrics.map { it["typing_burstiness"] as Double }.average()
+
+        // Total typing duration (sum of all session durations)
+        val totalTypingDuration = sessionMetrics.map { it["duration"] as Int }.sum()
+
+        // Active typing ratio = total typing duration / session duration
+        val activeTypingRatio =
+                if (durationMs > 0) {
+                    (totalTypingDuration * 1000.0 / durationMs).coerceIn(0.0, 1.0)
+                } else 0.0
+
+        // Typing contribution to interaction intensity = typing events / total events
+        val typingContributionToInteractionIntensity =
+                if (data.eventCount > 0) {
+                    typingEvents.size.toDouble() / data.eventCount
+                } else 0.0
+
+        // Deep typing blocks = sessions with deep_typing == true
+        val deepTypingBlocks = sessionMetrics.count { it["deep_typing"] as Boolean }
+
+        // Typing fragmentation = average gap ratio across sessions
+        val typingFragmentation = sessionMetrics.map { it["typing_gap_ratio"] as Double }.average()
+
+        // Individual typing session metrics (for detailed breakdown)
+        val individualMetrics =
+                typingEvents.map { event ->
+                    mapOf(
+                            "start_at" to (event.metrics["start_at"] as? String ?: ""),
+                            "end_at" to (event.metrics["end_at"] as? String ?: ""),
+                            "duration" to ((event.metrics["duration"] as? Number)?.toInt() ?: 0),
+                            "deep_typing" to (event.metrics["deep_typing"] as? Boolean ?: false),
+                            "typing_tap_count" to
+                                    ((event.metrics["typing_tap_count"] as? Number)?.toInt() ?: 0),
+                            "typing_speed" to
+                                    ((event.metrics["typing_speed"] as? Number)?.toDouble() ?: 0.0),
+                            "mean_inter_tap_interval_ms" to
+                                    ((event.metrics["mean_inter_tap_interval_ms"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0),
+                            "typing_cadence_variability" to
+                                    ((event.metrics["typing_cadence_variability"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0),
+                            "typing_cadence_stability" to
+                                    ((event.metrics["typing_cadence_stability"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0),
+                            "typing_gap_count" to
+                                    ((event.metrics["typing_gap_count"] as? Number)?.toInt() ?: 0),
+                            "typing_gap_ratio" to
+                                    ((event.metrics["typing_gap_ratio"] as? Number)?.toDouble()
+                                            ?: 0.0),
+                            "typing_burstiness" to
+                                    ((event.metrics["typing_burstiness"] as? Number)?.toDouble()
+                                            ?: 0.0),
+                            "typing_activity_ratio" to
+                                    ((event.metrics["typing_activity_ratio"] as? Number)?.toDouble()
+                                            ?: 0.0),
+                            "typing_interaction_intensity" to
+                                    ((event.metrics["typing_interaction_intensity"] as? Number)
+                                            ?.toDouble()
+                                            ?: 0.0)
+                    )
+                }
+
+        return mapOf(
+                "typing_session_count" to typingSessionCount,
+                "average_keystrokes_per_session" to averageKeystrokesPerSession,
+                "average_typing_session_duration" to averageTypingSessionDuration,
+                "average_typing_speed" to averageTypingSpeed,
+                "average_typing_gap" to averageTypingGap,
+                "average_inter_tap_interval" to averageInterTapInterval,
+                "typing_cadence_stability" to typingCadenceStability,
+                "burstiness_of_typing" to burstinessOfTyping,
+                "total_typing_duration" to totalTypingDuration,
+                "active_typing_ratio" to activeTypingRatio,
+                "typing_contribution_to_interaction_intensity" to
+                        typingContributionToInteractionIntensity,
+                "deep_typing_blocks" to deepTypingBlocks,
+                "typing_fragmentation" to typingFragmentation,
+                "typing_metrics" to individualMetrics
+        )
     }
 
     fun getCurrentStats(): BehaviorStats {
@@ -949,7 +1179,7 @@ data class BehaviorEvent(
         val eventId: String = "evt_${System.currentTimeMillis()}",
         val sessionId: String,
         val timestamp: String, // ISO 8601 format
-        val eventType: String, // scroll, tap, swipe, notification, call
+        val eventType: String, // scroll, tap, swipe, notification, call, typing
         val metrics: Map<String, Any>
 ) {
     fun toMap(): Map<String, Any> =

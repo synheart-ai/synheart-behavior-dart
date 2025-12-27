@@ -268,6 +268,177 @@ class SystemState {
   }
 }
 
+/// Typing metrics for a single typing session (keyboard open to close).
+class TypingMetrics {
+  final String startAt; // ISO 8601 timestamp
+  final String endAt; // ISO 8601 timestamp
+  final int duration; // Duration in seconds
+  final bool deepTyping; // Whether this is a deep typing session
+  final int typingTapCount; // Total number of keyboard tap events
+  final double typingSpeed; // Tap events per second
+  final double meanInterTapIntervalMs; // Average time between taps
+  final double typingCadenceVariability; // Variability in timing between taps
+  final double
+      typingCadenceStability; // Normalized rhythmic consistency (0.0-1.0)
+  final int typingGapCount; // Number of pauses exceeding threshold
+  final double typingGapRatio; // Proportion of intervals that are gaps
+  final double typingBurstiness; // Dispersion of inter-tap intervals
+  final double typingActivityRatio; // Fraction of window with active typing
+  final double typingInteractionIntensity; // Composite engagement measure
+
+  TypingMetrics({
+    required this.startAt,
+    required this.endAt,
+    required this.duration,
+    required this.deepTyping,
+    required this.typingTapCount,
+    required this.typingSpeed,
+    required this.meanInterTapIntervalMs,
+    required this.typingCadenceVariability,
+    required this.typingCadenceStability,
+    required this.typingGapCount,
+    required this.typingGapRatio,
+    required this.typingBurstiness,
+    required this.typingActivityRatio,
+    required this.typingInteractionIntensity,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'start_at': startAt,
+        'end_at': endAt,
+        'duration': duration,
+        'deep_typing': deepTyping,
+        'typing_tap_count': typingTapCount,
+        'typing_speed': typingSpeed,
+        'mean_inter_tap_interval_ms': meanInterTapIntervalMs,
+        'typing_cadence_variability': typingCadenceVariability,
+        'typing_cadence_stability': typingCadenceStability,
+        'typing_gap_count': typingGapCount,
+        'typing_gap_ratio': typingGapRatio,
+        'typing_burstiness': typingBurstiness,
+        'typing_activity_ratio': typingActivityRatio,
+        'typing_interaction_intensity': typingInteractionIntensity,
+      };
+
+  factory TypingMetrics.fromJson(Map<String, dynamic> json) {
+    return TypingMetrics(
+      startAt: json['start_at'] as String? ?? '',
+      endAt: json['end_at'] as String? ?? '',
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      deepTyping: json['deep_typing'] as bool? ?? false,
+      typingTapCount: (json['typing_tap_count'] as num?)?.toInt() ?? 0,
+      typingSpeed: (json['typing_speed'] as num?)?.toDouble() ?? 0.0,
+      meanInterTapIntervalMs:
+          (json['mean_inter_tap_interval_ms'] as num?)?.toDouble() ?? 0.0,
+      typingCadenceVariability:
+          (json['typing_cadence_variability'] as num?)?.toDouble() ?? 0.0,
+      typingCadenceStability:
+          (json['typing_cadence_stability'] as num?)?.toDouble() ?? 0.0,
+      typingGapCount: (json['typing_gap_count'] as num?)?.toInt() ?? 0,
+      typingGapRatio: (json['typing_gap_ratio'] as num?)?.toDouble() ?? 0.0,
+      typingBurstiness: (json['typing_burstiness'] as num?)?.toDouble() ?? 0.0,
+      typingActivityRatio:
+          (json['typing_activity_ratio'] as num?)?.toDouble() ?? 0.0,
+      typingInteractionIntensity:
+          (json['typing_interaction_intensity'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+/// Typing session summary aggregated across all typing sessions in the app session.
+class TypingSessionSummary {
+  final int typingSessionCount; // Number of distinct typing sessions
+  final double averageKeystrokesPerSession; // Average taps per typing session
+  final double
+      averageTypingSessionDuration; // Average duration per typing session (seconds)
+  final double averageTypingSpeed; // Average typing speed across all sessions
+  final double averageTypingGap; // Average gap duration between keystrokes
+  final double
+      averageInterTapInterval; // Average inter-tap interval across all sessions
+  final double typingCadenceStability; // Overall cadence stability
+  final double burstinessOfTyping; // Overall burstiness measure
+  final int totalTypingDuration; // Total time spent typing (seconds)
+  final double activeTypingRatio; // Ratio of typing time to total session time
+  final double
+      typingContributionToInteractionIntensity; // Typing's contribution to overall intensity
+  final int deepTypingBlocks; // Number of deep typing blocks
+  final double typingFragmentation; // Measure of typing fragmentation
+  final List<TypingMetrics>
+      individualTypingSessions; // List of individual typing sessions
+
+  TypingSessionSummary({
+    required this.typingSessionCount,
+    required this.averageKeystrokesPerSession,
+    required this.averageTypingSessionDuration,
+    required this.averageTypingSpeed,
+    required this.averageTypingGap,
+    required this.averageInterTapInterval,
+    required this.typingCadenceStability,
+    required this.burstinessOfTyping,
+    required this.totalTypingDuration,
+    required this.activeTypingRatio,
+    required this.typingContributionToInteractionIntensity,
+    required this.deepTypingBlocks,
+    required this.typingFragmentation,
+    required this.individualTypingSessions,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'typing_session_count': typingSessionCount,
+        'average_keystrokes_per_session': averageKeystrokesPerSession,
+        'average_typing_session_duration': averageTypingSessionDuration,
+        'average_typing_speed': averageTypingSpeed,
+        'average_typing_gap': averageTypingGap,
+        'average_inter_tap_interval': averageInterTapInterval,
+        'typing_cadence_stability': typingCadenceStability,
+        'burstiness_of_typing': burstinessOfTyping,
+        'total_typing_duration': totalTypingDuration,
+        'active_typing_ratio': activeTypingRatio,
+        'typing_contribution_to_interaction_intensity':
+            typingContributionToInteractionIntensity,
+        'deep_typing_blocks': deepTypingBlocks,
+        'typing_fragmentation': typingFragmentation,
+        'typing_metrics':
+            individualTypingSessions.map((m) => m.toJson()).toList(),
+      };
+
+  factory TypingSessionSummary.fromJson(Map<String, dynamic> json) {
+    return TypingSessionSummary(
+      typingSessionCount: (json['typing_session_count'] as num?)?.toInt() ?? 0,
+      averageKeystrokesPerSession:
+          (json['average_keystrokes_per_session'] as num?)?.toDouble() ?? 0.0,
+      averageTypingSessionDuration:
+          (json['average_typing_session_duration'] as num?)?.toDouble() ?? 0.0,
+      averageTypingSpeed:
+          (json['average_typing_speed'] as num?)?.toDouble() ?? 0.0,
+      averageTypingGap: (json['average_typing_gap'] as num?)?.toDouble() ?? 0.0,
+      averageInterTapInterval:
+          (json['average_inter_tap_interval'] as num?)?.toDouble() ?? 0.0,
+      typingCadenceStability:
+          (json['typing_cadence_stability'] as num?)?.toDouble() ?? 0.0,
+      burstinessOfTyping:
+          (json['burstiness_of_typing'] as num?)?.toDouble() ?? 0.0,
+      totalTypingDuration:
+          (json['total_typing_duration'] as num?)?.toInt() ?? 0,
+      activeTypingRatio:
+          (json['active_typing_ratio'] as num?)?.toDouble() ?? 0.0,
+      typingContributionToInteractionIntensity:
+          (json['typing_contribution_to_interaction_intensity'] as num?)
+                  ?.toDouble() ??
+              0.0,
+      deepTypingBlocks: (json['deep_typing_blocks'] as num?)?.toInt() ?? 0,
+      typingFragmentation:
+          (json['typing_fragmentation'] as num?)?.toDouble() ?? 0.0,
+      individualTypingSessions: json['typing_metrics'] != null
+          ? (json['typing_metrics'] as List<dynamic>)
+              .map((e) =>
+                  TypingMetrics.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList()
+          : [],
+    );
+  }
+}
+
 /// Summary statistics for a completed behavioral session.
 class BehaviorSessionSummary {
   /// Unique session ID.
@@ -312,6 +483,9 @@ class BehaviorSessionSummary {
   /// System state.
   final SystemState systemState;
 
+  /// Typing session summary.
+  final TypingSessionSummary? typingSessionSummary;
+
   BehaviorSessionSummary({
     required this.sessionId,
     required this.startAt,
@@ -327,6 +501,7 @@ class BehaviorSessionSummary {
     required this.behavioralMetrics,
     required this.notificationSummary,
     required this.systemState,
+    this.typingSessionSummary,
   });
 
   /// Convert to the new session behavior format.
@@ -345,6 +520,8 @@ class BehaviorSessionSummary {
         'behavioral_metrics': behavioralMetrics.toJson(),
         'notification_summary': notificationSummary.toJson(),
         'system_state': systemState.toJson(),
+        if (typingSessionSummary != null)
+          'typing_session_summary': typingSessionSummary!.toJson(),
       };
 
   factory BehaviorSessionSummary.fromJson(Map<String, dynamic> json) {
@@ -380,6 +557,10 @@ class BehaviorSessionSummary {
               json['notification_summary'] as Map? ?? {})),
       systemState: SystemState.fromJson(
           Map<String, dynamic>.from(json['system_state'] as Map? ?? {})),
+      typingSessionSummary: json['typing_session_summary'] != null
+          ? TypingSessionSummary.fromJson(
+              Map<String, dynamic>.from(json['typing_session_summary'] as Map))
+          : null,
     );
   }
 

@@ -5,6 +5,7 @@ enum BehaviorEventType {
   swipe,
   notification,
   call,
+  typing,
 }
 
 /// Scroll direction enum (vertical scrolling only)
@@ -156,6 +157,53 @@ class BehaviorEvent {
       eventType: BehaviorEventType.call,
       metrics: {
         'action': action.name,
+      },
+    );
+  }
+
+  /// Create a typing event.
+  ///
+  /// This factory creates a typing event with all calculated metrics for a typing session.
+  /// A typing session is defined as the period from keyboard open (focus gain) to keyboard close (focus loss).
+  factory BehaviorEvent.typing({
+    required String sessionId,
+    required int typingTapCount,
+    required double typingSpeed,
+    required double meanInterTapIntervalMs,
+    required double typingCadenceVariability,
+    required double typingCadenceStability,
+    required int typingGapCount,
+    required double typingGapRatio,
+    required double typingBurstiness,
+    required double typingActivityRatio,
+    required double typingInteractionIntensity,
+    required int durationSeconds,
+    required String startAt,
+    required String endAt,
+    required bool deepTyping,
+    String? eventId,
+    DateTime? timestamp,
+  }) {
+    return BehaviorEvent(
+      eventId: eventId,
+      sessionId: sessionId,
+      timestamp: timestamp,
+      eventType: BehaviorEventType.typing,
+      metrics: {
+        'typing_tap_count': typingTapCount,
+        'typing_speed': typingSpeed,
+        'mean_inter_tap_interval_ms': meanInterTapIntervalMs,
+        'typing_cadence_variability': typingCadenceVariability,
+        'typing_cadence_stability': typingCadenceStability,
+        'typing_gap_count': typingGapCount,
+        'typing_gap_ratio': typingGapRatio,
+        'typing_burstiness': typingBurstiness,
+        'typing_activity_ratio': typingActivityRatio,
+        'typing_interaction_intensity': typingInteractionIntensity,
+        'duration': durationSeconds,
+        'start_at': startAt,
+        'end_at': endAt,
+        'deep_typing': deepTyping,
       },
     );
   }

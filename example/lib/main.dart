@@ -71,6 +71,9 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
   }
 
   void _onAppBackgrounded() {
+    // End any active typing sessions when app goes to background
+    BehaviorTextField.endAllTypingSessions();
+
     if (!_isSessionActive || _currentSession == null) return;
 
     print(
@@ -208,6 +211,9 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
     print('_endSession called (autoEnded: $autoEnded)');
     print('_currentSession: $_currentSession');
     print('_isSessionActive: $_isSessionActive');
+
+    // End any active typing sessions (keyboard might still be open)
+    BehaviorTextField.endAllTypingSessions();
 
     if (_currentSession == null) {
       print('ERROR: _currentSession is null!');
@@ -422,193 +428,240 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
           backgroundColor: Theme.of(context).colorScheme.inversePrimary,
           title: const Text('Synheart Behavior Demo'),
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Status Card
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'SDK Status',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            _isInitialized ? Icons.check_circle : Icons.error,
-                            color: _isInitialized ? Colors.green : Colors.red,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _isInitialized ? 'Initialized' : 'Not Initialized',
-                          ),
-                        ],
-                      ),
-                      if (_isSessionActive) ...[
+        body: GestureDetector(
+          // Dismiss keyboard when tapping outside text fields
+          onTap: () {
+            FocusScope.of(context).unfocus();
+          },
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Status Card
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SDK Status',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(
-                              Icons.play_circle,
-                              color: Colors.blue,
+                            Icon(
+                              _isInitialized ? Icons.check_circle : Icons.error,
+                              color: _isInitialized ? Colors.green : Colors.red,
                             ),
                             const SizedBox(width: 8),
                             Text(
-                                'Session Active: ${_currentSession?.sessionId}'),
+                              _isInitialized
+                                  ? 'Initialized'
+                                  : 'Not Initialized',
+                            ),
                           ],
                         ),
+                        if (_isSessionActive) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.play_circle,
+                                color: Colors.blue,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                  'Session Active: ${_currentSession?.sessionId}'),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
 
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              // Controls
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _isInitialized && !_isSessionActive
-                          ? () {
-                              print('Start Session button clicked!');
-                              _startSession();
-                            }
-                          : null,
-                      child: const Text('Start Session'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Builder(
-                      builder: (context) => ElevatedButton(
-                        onPressed: _isInitialized && _isSessionActive
+                // Controls
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isInitialized && !_isSessionActive
                             ? () {
-                                print('=== END SESSION BUTTON CLICKED ===');
-                                print('_isInitialized: $_isInitialized');
-                                print('_isSessionActive: $_isSessionActive');
-                                print('_currentSession: $_currentSession');
-                                print(
-                                    '_currentSession?.sessionId: ${_currentSession?.sessionId}');
-                                _endSession();
+                                print('Start Session button clicked!');
+                                _startSession();
                               }
-                            : () {
-                                print(
-                                    '=== END SESSION BUTTON CLICKED (DISABLED) ===');
-                                print('_isInitialized: $_isInitialized');
-                                print('_isSessionActive: $_isSessionActive');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Button disabled: initialized=$_isInitialized, active=$_isSessionActive',
+                            : null,
+                        child: const Text('Start Session'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Builder(
+                        builder: (context) => ElevatedButton(
+                          onPressed: _isInitialized && _isSessionActive
+                              ? () {
+                                  print('=== END SESSION BUTTON CLICKED ===');
+                                  print('_isInitialized: $_isInitialized');
+                                  print('_isSessionActive: $_isSessionActive');
+                                  print('_currentSession: $_currentSession');
+                                  print(
+                                      '_currentSession?.sessionId: ${_currentSession?.sessionId}');
+                                  _endSession();
+                                }
+                              : () {
+                                  print(
+                                      '=== END SESSION BUTTON CLICKED (DISABLED) ===');
+                                  print('_isInitialized: $_isInitialized');
+                                  print('_isSessionActive: $_isSessionActive');
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Button disabled: initialized=$_isInitialized, active=$_isSessionActive',
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _isInitialized && _isSessionActive
-                              ? Colors.red
-                              : Colors.grey,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: Text(
-                          _isInitialized && _isSessionActive
-                              ? 'End Session'
-                              : 'End Session (Disabled)',
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-
-              ElevatedButton(
-                onPressed: _isInitialized ? _refreshStats : null,
-                child: const Text('Refresh Stats'),
-              ),
-
-              const SizedBox(height: 8),
-
-              ElevatedButton(
-                onPressed: _isInitialized && _behavior != null
-                    ? () => _checkAndRequestNotificationPermission(_behavior!)
-                    : null,
-                child: const Text('Request Notification Permission'),
-              ),
-
-              const SizedBox(height: 8),
-
-              ElevatedButton(
-                onPressed: _isInitialized && _behavior != null
-                    ? () => _checkAndRequestCallPermission(_behavior!)
-                    : null,
-                child: const Text('Request Call Permission'),
-              ),
-
-              const SizedBox(height: 16),
-              if (!_isSessionActive) ...[
-                // Stats Card
-                if (_currentStats != null)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Current Stats',
-                            style: Theme.of(context).textTheme.titleLarge,
+                                  );
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isInitialized && _isSessionActive
+                                ? Colors.red
+                                : Colors.grey,
+                            foregroundColor: Colors.white,
                           ),
-                          const SizedBox(height: 8),
-                          // _buildStatRow('Typing Cadence',
-                          //     _currentStats!.typingCadence?.toStringAsFixed(2)),
-                          _buildStatRow(
-                              'Scroll Velocity',
-                              _currentStats!.scrollVelocity
-                                  ?.toStringAsFixed(2)),
-                          _buildStatRow('App Switches/min',
-                              _currentStats!.appSwitchesPerMinute.toString()),
-                          _buildStatRow(
-                              'Stability Index',
-                              _currentStats!.stabilityIndex
-                                  ?.toStringAsFixed(2)),
-                        ],
+                          child: Text(
+                            _isInitialized && _isSessionActive
+                                ? 'End Session'
+                                : 'End Session (Disabled)',
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                ElevatedButton(
+                  onPressed: _isInitialized ? _refreshStats : null,
+                  child: const Text('Refresh Stats'),
+                ),
+
+                const SizedBox(height: 8),
+
+                ElevatedButton(
+                  onPressed: _isInitialized && _behavior != null
+                      ? () => _checkAndRequestNotificationPermission(_behavior!)
+                      : null,
+                  child: const Text('Request Notification Permission'),
+                ),
+
+                const SizedBox(height: 8),
+
+                ElevatedButton(
+                  onPressed: _isInitialized && _behavior != null
+                      ? () => _checkAndRequestCallPermission(_behavior!)
+                      : null,
+                  child: const Text('Request Call Permission'),
+                ),
 
                 const SizedBox(height: 16),
-
-                const SizedBox(height: 16),
-              ],
-
-              // Interactive Test Area - Always visible, especially during session
-              const SizedBox(height: 16),
-              // Test list - removed for now to avoid blocking interactions
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: 10,
-                itemBuilder: (context, index) {
-                  return Card(
+                if (!_isSessionActive) ...[
+                  // Stats Card
+                  if (_currentStats != null)
+                    Card(
                       child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text('Item $index')));
-                },
-              ),
-              const SizedBox(height: 100),
-              const Text('Scroll down to see more content'),
-            ],
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Current Stats',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            // _buildStatRow('Typing Cadence',
+                            //     _currentStats!.typingCadence?.toStringAsFixed(2)),
+                            _buildStatRow(
+                                'Scroll Velocity',
+                                _currentStats!.scrollVelocity
+                                    ?.toStringAsFixed(2)),
+                            _buildStatRow('App Switches/min',
+                                _currentStats!.appSwitchesPerMinute.toString()),
+                            _buildStatRow(
+                                'Stability Index',
+                                _currentStats!.stabilityIndex
+                                    ?.toStringAsFixed(2)),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 16),
+                ],
+
+                // Typing Test Field
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Typing Test',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        BehaviorTextField(
+                          decoration: const InputDecoration(
+                            hintText: 'Type here to test typing events...',
+                            border: OutlineInputBorder(),
+                            labelText: 'Text Input',
+                          ),
+                          maxLines: 3,
+                          onTypingEvent: (event) async {
+                            // Send typing event to SDK
+                            if (_behavior != null) {
+                              await _behavior!.sendEvent(event);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Typing events will appear in the event stream above',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.grey[600],
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Interactive Test Area - Always visible, especially during session
+                const SizedBox(height: 16),
+                // Test list - removed for now to avoid blocking interactions
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: 10,
+                  itemBuilder: (context, index) {
+                    return Card(
+                        child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Text('Item $index')));
+                  },
+                ),
+                const SizedBox(height: 100),
+                const Text('Scroll down to see more content'),
+              ],
+            ),
           ),
         ),
       ),
@@ -918,6 +971,170 @@ class SessionResultsScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
+            // Typing Session Summary Card
+            if (summary.typingSessionSummary != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.keyboard, color: Colors.teal),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Typing Session Summary',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildInfoRow('Typing Sessions',
+                          '${summary.typingSessionSummary!.typingSessionCount}'),
+                      _buildInfoRow(
+                          'Avg Keystrokes/Session',
+                          summary
+                              .typingSessionSummary!.averageKeystrokesPerSession
+                              .toStringAsFixed(1)),
+                      _buildInfoRow(
+                          'Avg Session Duration',
+                          _formatMs((summary.typingSessionSummary!
+                                      .averageTypingSessionDuration *
+                                  1000)
+                              .round())),
+                      _buildInfoRow('Avg Typing Speed',
+                          '${summary.typingSessionSummary!.averageTypingSpeed.toStringAsFixed(2)} taps/s'),
+                      _buildInfoRow(
+                          'Avg Typing Gap',
+                          _formatMs(summary
+                              .typingSessionSummary!.averageTypingGap
+                              .round())),
+                      _buildInfoRow(
+                          'Average Inter-tap Interval',
+                          _formatMs(summary
+                              .typingSessionSummary!.averageInterTapInterval
+                              .round())),
+                      _buildInfoRow(
+                          'Cadence Stability',
+                          summary.typingSessionSummary!.typingCadenceStability
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Burstiness',
+                          summary.typingSessionSummary!.burstinessOfTyping
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Total Typing Duration',
+                          _formatMs(summary
+                                  .typingSessionSummary!.totalTypingDuration *
+                              1000)),
+                      _buildInfoRow(
+                          'Active Typing Ratio',
+                          summary.typingSessionSummary!.activeTypingRatio
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Typing Contribution to Intensity',
+                          summary.typingSessionSummary!
+                              .typingContributionToInteractionIntensity
+                              .toStringAsFixed(3)),
+                      _buildInfoRow('Deep Typing Blocks',
+                          '${summary.typingSessionSummary!.deepTypingBlocks}'),
+                      _buildInfoRow(
+                          'Typing Fragmentation',
+                          summary.typingSessionSummary!.typingFragmentation
+                              .toStringAsFixed(3)),
+                      if (summary.typingSessionSummary!.individualTypingSessions
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Individual Typing Sessions (${summary.typingSessionSummary!.individualTypingSessions.length})',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...summary
+                            .typingSessionSummary!.individualTypingSessions
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                          final index = entry.key;
+                          final session = entry.value;
+                          return ExpansionTile(
+                            title: Text(
+                              'Session ${index + 1}${session.deepTyping ? " (Deep Typing)" : ""}',
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                            subtitle: Text(
+                              '${_formatMs(session.duration * 1000)} • ${session.typingTapCount} keystrokes',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildInfoRow('Start Time',
+                                        _formatDateTime(session.startAt)),
+                                    _buildInfoRow('End Time',
+                                        _formatDateTime(session.endAt)),
+                                    _buildInfoRow('Duration',
+                                        _formatMs(session.duration * 1000)),
+                                    _buildInfoRow('Deep Typing',
+                                        session.deepTyping ? 'Yes' : 'No'),
+                                    _buildInfoRow('Keystrokes',
+                                        '${session.typingTapCount}'),
+                                    _buildInfoRow('Typing Speed',
+                                        '${session.typingSpeed.toStringAsFixed(2)} taps/s'),
+                                    _buildInfoRow(
+                                        'Mean Inter-Tap Interval',
+                                        _formatMs(session.meanInterTapIntervalMs
+                                            .round())),
+                                    _buildInfoRow(
+                                        'Cadence Variability',
+                                        _formatMs(session
+                                            .typingCadenceVariability
+                                            .round())),
+                                    _buildInfoRow(
+                                        'Cadence Stability',
+                                        session.typingCadenceStability
+                                            .toStringAsFixed(3)),
+                                    _buildInfoRow('Gap Count',
+                                        '${session.typingGapCount}'),
+                                    _buildInfoRow(
+                                        'Gap Ratio',
+                                        session.typingGapRatio
+                                            .toStringAsFixed(3)),
+                                    _buildInfoRow(
+                                        'Burstiness',
+                                        session.typingBurstiness
+                                            .toStringAsFixed(3)),
+                                    _buildInfoRow(
+                                        'Activity Ratio',
+                                        session.typingActivityRatio
+                                            .toStringAsFixed(3)),
+                                    _buildInfoRow(
+                                        'Interaction Intensity',
+                                        session.typingInteractionIntensity
+                                            .toStringAsFixed(3)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        }),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // System State Card
             Card(
               child: Padding(
@@ -1070,19 +1287,27 @@ class SessionResultsScreen extends StatelessWidget {
           ...event.metrics.entries.map((entry) => Padding(
                 padding: const EdgeInsets.only(left: 8, top: 2),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${entry.key}: ',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            fontFamily: 'monospace',
-                          ),
+                    Flexible(
+                      child: Text(
+                        '${entry.key}: ',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w500,
+                              fontFamily: 'monospace',
+                            ),
+                      ),
                     ),
-                    Text(
-                      entry.value.toString(),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontFamily: 'monospace',
-                          ),
+                    Flexible(
+                      flex: 2,
+                      child: Text(
+                        entry.value.toString(),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                            ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
                     ),
                   ],
                 ),
@@ -1104,6 +1329,8 @@ class SessionResultsScreen extends StatelessWidget {
         return Colors.red;
       case BehaviorEventType.notification:
         return Colors.purple;
+      case BehaviorEventType.typing:
+        return Colors.teal;
     }
   }
 
