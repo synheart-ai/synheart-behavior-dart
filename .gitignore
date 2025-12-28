@@ -83,6 +83,12 @@ metrics.md
 PERMISSIONS_DATA_MATRIX.md
 note-3.md
 note-4.md
+features.txt
+model_metadata.json
+pythoninferece.py
+testing_plan.md
+ML_ENGINEER_QUESTION.md
+IMPLEMENTATION_VS_GUIDE.md
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
 
@@ -134,7 +135,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
         config: const BehaviorConfig(
           enableInputSignals: true,
           enableAttentionSignals: true,
-          enableMotionLite: false,
+          enableMotionLite: true, // Enable motion data collection for ML
         ),
       );
 
@@ -241,6 +242,100 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
       print('Session ended successfully. Summary: ${summary.sessionId}');
       final sessionEvents = List<BehaviorEvent>.from(_sessionEvents);
       print('Session events count: ${sessionEvents.length}');
+
+      // Export 561 features as JSON for ML engineer (if motion data available)
+      if (summary.motionData != null && summary.motionData!.isNotEmpty) {
+        try {
+          // Initialize inference to get ordered features
+          final inference = MotionStateInference();
+          await inference.loadModel();
+
+          // Print header to distinguish motion data export
+          print('\n');
+          print(
+              '═══════════════════════════════════════════════════════════════');
+          print('📊 MOTION DATA EXPORT - 561 FEATURES PER WINDOW');
+          print(
+              '═══════════════════════════════════════════════════════════════');
+          print('Total windows: ${summary.motionData!.length}');
+          print('Total duration: ${summary.motionData!.length * 5} seconds');
+          print('Features per window: 561 (ordered as per features.txt)');
+          print(
+              '═══════════════════════════════════════════════════════════════');
+          print('');
+
+          // Print each window as JSON (all 561 features per window)
+          for (int i = 0; i < summary.motionData!.length; i++) {
+            final windowNum = i + 1;
+
+            // Get ordered features for this window (all 561 values)
+            final orderedFeatures = await inference
+                .getOrderedFeatures(summary.motionData![i].features);
+
+            // Verify we have all 561 features
+            if (orderedFeatures.length != 561) {
+              print(
+                  'ERROR: Window $windowNum has ${orderedFeatures.length} features, expected 561!');
+              continue;
+            }
+
+            // Replace NaN and Infinity values with 0.0 before JSON encoding
+            // JSON doesn't support NaN/Infinity, so we need to sanitize the data
+            final sanitizedFeatures = orderedFeatures.map((value) {
+              if (value.isNaN || value.isInfinite) {
+                return 0.0;
+              }
+              return value;
+            }).toList();
+
+            // Count how many were replaced for logging
+            final nanCount = orderedFeatures.where((v) => v.isNaN).length;
+            final infCount = orderedFeatures.where((v) => v.isInfinite).length;
+            if (nanCount > 0 || infCount > 0) {
+              print(
+                  '⚠️ Window $windowNum: Replaced $nanCount NaN and $infCount Infinity values with 0.0');
+            }
+
+            // Create JSON object for this window
+            final windowJson = {
+              'data_point_index': windowNum,
+              'timestamp': summary.motionData![i].timestamp,
+              'features':
+                  sanitizedFeatures, // All 561 features in exact order (NaN/Inf replaced)
+            };
+
+            // Print as JSON string (compact format)
+            try {
+              final jsonString = json.encode(windowJson);
+              print(jsonString);
+
+              // Verify the JSON contains all features (check feature count in JSON)
+              final decoded = json.decode(jsonString) as Map<String, dynamic>;
+              final featuresInJson = decoded['features'] as List;
+              if (featuresInJson.length != 561) {
+                print(
+                    'ERROR: Window $windowNum JSON contains ${featuresInJson.length} features, expected 561!');
+              } else {
+                print('✓ Window $windowNum: Verified 561 features in JSON');
+              }
+            } catch (e) {
+              print('ERROR: Failed to encode Window $windowNum to JSON: $e');
+            }
+          }
+
+          print('');
+          print(
+              '═══════════════════════════════════════════════════════════════');
+          print('✅ END OF MOTION DATA EXPORT');
+          print(
+              '═══════════════════════════════════════════════════════════════');
+          print('\n');
+        } catch (e) {
+          print('Error exporting features: $e');
+        }
+      } else {
+        print('No motion data available to export');
+      }
 
       setState(() {
         _currentSession = null;
@@ -775,6 +870,53 @@ class SessionResultsScreen extends StatelessWidget {
 
             const SizedBox(height: 16),
 
+            // Motion Data Debug Card (temporary for debugging)
+            Card(
+              color: Colors.orange.withOpacity(0.1),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Motion Data Debug',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: Colors.orange[900],
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildInfoRow('Motion Data Available',
+                        summary.motionData != null ? 'Yes' : 'No'),
+                    _buildInfoRow('Motion Data Count',
+                        '${summary.motionData?.length ?? 0} windows'),
+                    _buildInfoRow('Motion State Available',
+                        summary.motionState != null ? 'Yes' : 'No'),
+                    if (summary.motionData != null &&
+                        summary.motionData!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'First window sample (first 5 features):',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        summary.motionData!.first.features.entries
+                            .take(5)
+                            .map((e) =>
+                                '${e.key}: ${e.value.toStringAsFixed(4)}')
+                            .join('\n'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              fontSize: 10,
+                            ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Motion State Card
             if (summary.motionState != null) ...[
               Card(
@@ -788,10 +930,173 @@ class SessionResultsScreen extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 12),
-                      _buildInfoRow('State', summary.motionState!.state),
+                      _buildInfoRow(
+                          'Major State', summary.motionState!.majorState),
+                      _buildInfoRow('Major State %',
+                          '${(summary.motionState!.majorStatePct * 100).toStringAsFixed(1)}%'),
                       _buildInfoRow('ML Model', summary.motionState!.mlModel),
                       _buildInfoRow('Confidence',
-                          summary.motionState!.confidence.toStringAsFixed(3)),
+                          summary.motionState!.confidence.toStringAsFixed(2)),
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'State Array (${summary.motionState!.state.length} windows):',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      // Display as JSON-like array format
+                      Container(
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SelectableText(
+                          '[${summary.motionState!.state.map((s) => '"$s"').join(', ')}]',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontFamily: 'monospace',
+                                    fontSize: 12,
+                                  ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Also show as readable list
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: summary.motionState!.state
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                          return Chip(
+                            label: Text(
+                              '${entry.key + 1}: ${entry.value}',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Motion Data Card (ML Features)
+            if (summary.motionData != null &&
+                summary.motionData!.isNotEmpty) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Motion Data (ML Features)',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildInfoRow(
+                        'Data Points',
+                        '${summary.motionData!.length} time windows',
+                      ),
+                      _buildInfoRow(
+                        'Time Window',
+                        '5 seconds per window',
+                      ),
+                      _buildInfoRow(
+                        'Features per Window',
+                        '561 ML features',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Sample Features (First window):',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      ...summary.motionData!.take(1).map((dataPoint) {
+                        return ExpansionTile(
+                          title: Text(
+                            'Window: ${dataPoint.timestamp}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Total Features: ${dataPoint.features.length}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  // Show first 20 features as examples
+                                  ...dataPoint.features.entries
+                                      .take(20)
+                                      .map((entry) {
+                                    return Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 4.0),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              entry.key,
+                                              style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontFamily: 'monospace'),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            flex: 1,
+                                            child: Text(
+                                              entry.value.toStringAsFixed(4),
+                                              style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontFamily: 'monospace'),
+                                              textAlign: TextAlign.right,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                  if (dataPoint.features.length > 20)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Text(
+                                        '... and ${dataPoint.features.length - 20} more features',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      }),
+                      if (summary.motionData!.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(
+                            '... and ${summary.motionData!.length - 1} more windows',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
                     ],
                   ),
                 ),

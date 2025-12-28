@@ -20,6 +20,7 @@ public class BehaviorSDK {
     private let gestureCollector: GestureCollector
     private let notificationCollector: NotificationCollector
     private let callCollector: CallCollector
+    private let motionSignalCollector: MotionSignalCollector
 
     // Lifecycle tracking
     private var lastInteractionTime = Date()
@@ -44,6 +45,7 @@ public class BehaviorSDK {
         self.gestureCollector = GestureCollector(config: config)
         self.notificationCollector = NotificationCollector(config: config)
         self.callCollector = CallCollector(config: config)
+        self.motionSignalCollector = MotionSignalCollector(config: config)
     }
 
     public func initialize() {
@@ -155,6 +157,9 @@ public class BehaviorSDK {
         
         lastInteractionTime = now
         // Don't update lastAppUseTime here - it will be updated when session ends
+        
+        // Start motion data collection if enabled
+        motionSignalCollector.startSession(sessionStartTime: nowMs)
         
         // Register for orientation change notifications
         NotificationCenter.default.addObserver(
@@ -311,6 +316,9 @@ public class BehaviorSDK {
         // Compute typing session summary
         let typingSessionSummary = computeTypingSessionSummary(data: data, durationMs: Int64(duration))
         
+        // Collect motion data if enabled
+        let motionData = motionSignalCollector.stopSession()
+        
         // Build comprehensive summary
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -353,7 +361,23 @@ public class BehaviorSDK {
         if !typingSessionSummary.isEmpty {
             summary["typing_session_summary"] = typingSessionSummary
         }
-
+        
+        // Add motion data if available
+        if !motionData.isEmpty {
+            let motionDataJson = motionData.map { dataPoint -> [String: Any] in
+                return [
+                    "timestamp": dataPoint.timestamp,
+                    "accelerometer_x": dataPoint.accelerometerX,
+                    "accelerometer_y": dataPoint.accelerometerY,
+                    "accelerometer_z": dataPoint.accelerometerZ,
+                    "gyroscope_x": dataPoint.gyroscopeX,
+                    "gyroscope_y": dataPoint.gyroscopeY,
+                    "gyroscope_z": dataPoint.gyroscopeZ
+                ]
+            }
+            summary["motion_data"] = motionDataJson
+        }
+        
         sessionData.removeValue(forKey: sessionId)
         NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         return summary

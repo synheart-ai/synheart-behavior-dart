@@ -26,27 +26,74 @@ class BehaviorSession {
 
 /// Motion state information.
 class MotionState {
-  final String state; // e.g., "walking", "stationary", "running"
-  final String mlModel; // e.g., "motion_state_predictor_v0.1"
+  final List<String>
+      state; // Array of states for each window, e.g., ["walking", "sitting", "standing", "sitting"]
+  final String majorState; // Most common state, e.g., "sitting"
+  final double majorStatePct; // Percentage of major state, e.g., 0.5
+  final String mlModel; // e.g., "motion_state_svc_classifier_v0.1"
   final double confidence; // 0.0 to 1.0
 
   MotionState({
     required this.state,
+    required this.majorState,
+    required this.majorStatePct,
     required this.mlModel,
     required this.confidence,
   });
 
   Map<String, dynamic> toJson() => {
         'state': state,
+        'major_state': majorState,
+        'major_state_pct': majorStatePct,
         'ml_model': mlModel,
         'confidence': confidence,
       };
 
   factory MotionState.fromJson(Map<String, dynamic> json) {
     return MotionState(
-      state: json['state'] as String? ?? 'unknown',
-      mlModel: json['ml_model'] as String? ?? 'unknown',
+      state:
+          json['state'] != null ? List<String>.from(json['state'] as List) : [],
+      majorState: json['major_state'] as String? ?? 'unknown',
+      majorStatePct: (json['major_state_pct'] as num?)?.toDouble() ?? 0.0,
+      mlModel:
+          json['ml_model'] as String? ?? 'motion_state_svc_classifier_v0.1',
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+/// Raw motion data point (accelerometer and gyroscope arrays per timestamp).
+class MotionDataPoint {
+  /// ISO 8601 timestamp for this data point (5-second window)
+  final String timestamp;
+
+  /// ML features extracted from raw sensor data (561 features)
+  /// Feature names match the format from features.txt (e.g., "tBodyAcc-mean()-X")
+  final Map<String, double> features;
+
+  MotionDataPoint({
+    required this.timestamp,
+    required this.features,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'timestamp': timestamp,
+        'features': features,
+      };
+
+  factory MotionDataPoint.fromJson(Map<String, dynamic> json) {
+    return MotionDataPoint(
+      timestamp: json['timestamp'] as String,
+      features: json['features'] != null
+          ? Map<String, double>.from(
+              (json['features'] as Map).map(
+                (key, value) => MapEntry(
+                  key.toString(),
+                  (value as num).toDouble(),
+                ),
+              ),
+            )
+          : {},
     );
   }
 }
@@ -486,6 +533,9 @@ class BehaviorSessionSummary {
   /// Typing session summary.
   final TypingSessionSummary? typingSessionSummary;
 
+  /// Raw motion data (accelerometer and gyroscope arrays per timestamp).
+  final List<MotionDataPoint>? motionData;
+
   BehaviorSessionSummary({
     required this.sessionId,
     required this.startAt,
@@ -502,6 +552,7 @@ class BehaviorSessionSummary {
     required this.notificationSummary,
     required this.systemState,
     this.typingSessionSummary,
+    this.motionData,
   });
 
   /// Convert to the new session behavior format.
@@ -522,6 +573,8 @@ class BehaviorSessionSummary {
         'system_state': systemState.toJson(),
         if (typingSessionSummary != null)
           'typing_session_summary': typingSessionSummary!.toJson(),
+        if (motionData != null)
+          'motion_data': motionData!.map((point) => point.toJson()).toList(),
       };
 
   factory BehaviorSessionSummary.fromJson(Map<String, dynamic> json) {
@@ -560,6 +613,12 @@ class BehaviorSessionSummary {
       typingSessionSummary: json['typing_session_summary'] != null
           ? TypingSessionSummary.fromJson(
               Map<String, dynamic>.from(json['typing_session_summary'] as Map))
+          : null,
+      motionData: json['motion_data'] != null
+          ? (json['motion_data'] as List<dynamic>)
+              .map((e) =>
+                  MotionDataPoint.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList()
           : null,
     );
   }

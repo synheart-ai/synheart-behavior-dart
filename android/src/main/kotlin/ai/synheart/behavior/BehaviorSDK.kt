@@ -36,6 +36,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     private val gestureCollector = GestureCollector(config)
     private val notificationCollector = NotificationCollector(config)
     private val callCollector = CallCollector(context, config)
+    private val motionSignalCollector = MotionSignalCollector(context, config)
 
     // Lifecycle tracking
     private var appInForeground = true
@@ -158,6 +159,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
         lastInteractionTime = now
         // Don't update lastAppUseTime here - it will be updated when session ends
+
+        // Start motion data collection if enabled
+        motionSignalCollector.startSession(now)
 
         // Register orientation change listener
         registerOrientationListener()
@@ -358,6 +362,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         // Compute typing session summary
         val typingSessionSummary = computeTypingSessionSummary(data, duration)
 
+        // Collect motion data if enabled
+        val motionData = motionSignalCollector.stopSession()
+
         // Build comprehensive summary
         val summaryBase =
                 mapOf(
@@ -400,12 +407,22 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 )
 
         // Add typing session summary if available
-        val summary =
-                if (typingSessionSummary.isNotEmpty()) {
-                    summaryBase + mapOf("typing_session_summary" to typingSessionSummary)
-                } else {
-                    summaryBase
-                }
+        var summary = summaryBase
+        if (typingSessionSummary.isNotEmpty()) {
+            summary = summary + mapOf("typing_session_summary" to typingSessionSummary)
+        }
+
+        // Add motion data if available
+        if (motionData.isNotEmpty()) {
+            val motionDataJson =
+                    motionData.map { dataPoint ->
+                        mapOf(
+                                "timestamp" to dataPoint.timestamp,
+                                "features" to dataPoint.features
+                        )
+                    }
+            summary = summary + mapOf("motion_data" to motionDataJson)
+        }
 
         sessionData.remove(sessionId)
         return summary
@@ -1025,6 +1042,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         gestureCollector.updateConfig(newConfig)
         notificationCollector.updateConfig(newConfig)
         callCollector.updateConfig(newConfig)
+        motionSignalCollector.updateConfig(newConfig)
     }
 
     fun attachToView(view: View) {
