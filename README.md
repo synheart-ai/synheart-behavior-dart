@@ -1,10 +1,22 @@
-# Synheart Behavioral SDK for Flutter
+# Synheart Behavior
+
+> On-device behavioral signal inference from digital interactions for Flutter applications
 
 [![pub.dev](https://img.shields.io/pub/v/synheart_behavior.svg)](https://pub.dev/packages/synheart_behavior)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://pub.dev/packages/synheart_behavior)
+[![Dart](https://img.shields.io/badge/dart-%3E%3D3.0.0-blue.svg)](https://dart.dev/)
+[![Flutter](https://img.shields.io/badge/flutter-%3E%3D3.10.0-blue.svg)](https://flutter.dev/)
 
-A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. The SDK will help you to transforms low-level digital interaction events into structured numerical representations of behavior across event and session. By modeling interaction timing, intensity, fragmentation, and interruption patterns without collecting content or personal data, the SDK provides stable, interpretable metrics to represent digital behavior.
+A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. The SDK transforms low-level digital interaction events into structured numerical representations of behavior across event and session. By modeling interaction timing, intensity, fragmentation, and interruption patterns without collecting content or personal data, the SDK provides stable, interpretable metrics to represent digital behavior.
 
-## Features
+These behavioral signals power downstream systems such as:
+- Focus and distraction inference
+- Digital wellness analytics
+- Cognitive load and fatigue estimation
+- Multimodal human state modeling (HSI)
+
+## 🚀 Features
 
 - **Privacy-First**: No text, content, or personally identifiable information (PII) collected—only timing-based signals
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
@@ -14,13 +26,13 @@ A privacy-preserving mobile SDK that collects digital behavioral signals from sm
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android with native implementations
 
-## Installation
+## 📦 Installation
 
 Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.1.0
+  synheart_behavior: ^0.0.1
 ```
 
 Then run:
@@ -33,7 +45,7 @@ flutter pub get
 
 **No additional configuration required!** The SDK works out of the box. For optional features (notifications and calls), see the [Permissions](#permissions) section below.
 
-## Quick Start
+## 🎯 Quick Start
 
 Here's a complete example to get you started:
 
@@ -155,7 +167,7 @@ class _HomePageState extends State<HomePage> {
 4. **Track Sessions** - Start and end sessions to get behavioral summaries
 5. **Clean Up** - Call `dispose()` when done to free resources
 
-## Real-Time Event Tracking
+## 📡 Real-Time Event Tracking
 
 The SDK streams behavioral events in real-time as they occur. This is the primary way to track user behavior:
 
@@ -185,7 +197,7 @@ behavior.onEvent.listen((event) {
 });
 ```
 
-## Event Types
+## 📊 Event Types
 
 The SDK collects five types of behavioral events:
 
@@ -203,7 +215,7 @@ Each event includes:
 - `eventType`: Type of event (scroll, tap, swipe, etc.)
 - `metrics`: Event-specific metrics (velocity, duration, etc.)
 
-## Permissions
+## 🔐 Permissions
 
 **Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking.
 
@@ -254,7 +266,7 @@ if (!hasPermission) {
 }
 ```
 
-## Configuration
+## 🔧 Configuration
 
 ### Initial Configuration
 
@@ -299,7 +311,7 @@ await behavior.updateConfig(BehaviorConfig(
 ));
 ```
 
-## Session Management
+## 📈 Session Management
 
 ### Starting a Session
 
@@ -327,10 +339,10 @@ print('Ended: ${summary.endAt}');
 print('Duration: ${summary.durationMs}ms');
 
 // Behavioral metrics
-print('Focus Hint: ${summary.behavioralMetrics.focusHint}');
-print('Distraction Score: ${summary.behavioralMetrics.distractionScore}');
 print('Interaction Intensity: ${summary.behavioralMetrics.interactionIntensity}');
-print('Deep Focus Blocks: ${summary.behavioralMetrics.deepFocusBlocks}');
+print('Distraction Score: ${summary.behavioralMetrics.distractionScore}');
+print('Focus Hint: ${summary.behavioralMetrics.focusHint}');
+print('Deep Focus Blocks: ${summary.behavioralMetrics.deepFocusBlocks.length}');
 
 // Activity summary
 print('Total Events: ${summary.activitySummary.totalEvents}');
@@ -371,7 +383,23 @@ if (behavior.isInitialized) {
 }
 ```
 
-## Additional Features
+### Core Behavioral Metrics
+
+Session-level outputs include:
+- `interactionIntensity`: Overall interaction rate and engagement
+- `distractionScore`: Behavioral proxy for distraction (0-1)
+- `focusHint`: Behavioral proxy for focus quality (0-1)
+- `deepFocusBlocks`: Periods of sustained, uninterrupted engagement
+- `taskSwitchRate`: Frequency of app switching
+- `idleRatio`: Proportion of idle time vs active interaction
+- `fragmentedIdleRatio`: Ratio of fragmented vs continuous idle periods
+- `burstiness`: Temporal clustering of interaction events
+- `notificationLoad`: Notification pressure and response patterns
+- `scrollJitterRate`: Scroll pattern irregularity
+
+All metrics are bounded, normalized, and numerically stable.
+
+## ⚙️ Additional Features
 
 ### Text Field Widget
 
@@ -414,96 +442,72 @@ void dispose() {
 }
 ```
 
-## Privacy & Compliance
+## 🔒 Privacy & Compliance
 
 The Synheart SDK is designed around privacy-by-design and data minimization principles. It captures only the minimum interaction metadata required to model digital behavior, without accessing personal, semantic, or content-level information.
 
-**Data Collection Guarantees**
+### Hard Guarantees
 
-✅ No personal identifiable information (PII)
-The SDK does not collect names, contacts, account identifiers, message content, or any user-identifying data. All signals are timing-based and structural.
+✅ **No PII**: The SDK does not collect names, contacts, account identifiers, message content, or any user-identifying data. All signals are timing-based and structural.
 
-✅ No content capture
-The SDK does not collect:
+✅ **No content capture**: The SDK does not collect notification text/titles/sender identity, call audio/voice data/participants, or application UI content/screen data.
 
-- notification text, titles, or sender identity
-- call audio, voice data, or call participants
-- application UI content or screen data
+✅ **No keystroke logging**: Text input is never recorded. Interactions with text fields are captured only as abstract tap events (timing and duration only), without any character-level data.
 
-✅ No keystroke or text logging
-Text input is never recorded. Interactions with text fields are captured only as abstract tap events (timing and duration only), without any character-level data.
+✅ **No audio or visual recording**: The SDK does not access the screen buffer, screenshots, camera, microphone, or any form of visual/audio capture.
 
-✅ No screen recording or screenshots
-The SDK does not access the screen buffer, screenshots, or any form of visual capture.
+✅ **Permission-scoped tracking only**: Behavioral data is collected exclusively from applications that explicitly receive user permission. The SDK does not monitor, infer, or aggregate behavior across the entire device or across unpermitted applications.
 
-✅ Permission-scoped tracking only
-Behavioral data is collected exclusively from applications that explicitly receive user permission.
-The SDK does not monitor, infer, or aggregate behavior across the entire device or across unpermitted applications.
+✅ **No tracking across unconsented apps**: The SDK only tracks behavior within the app that integrates it and has received user consent.
 
-✅ Event-level metadata only
-Collected data is limited to:
+✅ **Event-level metadata only**: Collected data is limited to event type (tap, scroll, swipe, notification, call), timestamp, and non-semantic physical metrics (duration, velocity). No semantic interpretation is performed at the data collection stage.
 
-- event type (e.g., tap, scroll, swipe, notification, call)
-- timestamp
-- non-semantic physical metrics (e.g., duration, velocity)
-  No semantic interpretation is performed at the data collection stage.
+### Connectivity & System Access
 
-**Connectivity & System Access**
+✅ **No internet connectivity required**: The SDK functions fully offline and does not require an active internet connection to perform behavioral capture or inference.
 
-✅ No internet connectivity required for operation
-The SDK functions fully offline and does not require an active internet connection to perform behavioral capture or inference.
+✅ **Network availability state only**: The SDK may record a binary system-level indicator of whether network connectivity is present at a given time. This signal does not include network traffic, destinations, IPs, or content, does not trigger any data transmission, and is used solely as contextual metadata.
 
-✅ Network availability state only (no data transmission)
-The SDK may record a binary system-level indicator of whether network connectivity (e.g., internet available / unavailable) is present at a given time.
-This signal:
+✅ **No Bluetooth or external connectivity required**: The SDK does not depend on Bluetooth, NFC, or communication with external devices.
 
-- does not include network traffic, destinations, IPs, or content
-- does not trigger any data transmission
-- is used solely as contextual metadata for behavioral interpretation (e.g., offline usage patterns)
+✅ **No background network communication**: Behavioral computation and aggregation occur locally without initiating network requests. Any optional data transmission is explicitly controlled, consent-gated, and configurable.
 
-✅ No Bluetooth or external connectivity required
-The SDK does not depend on Bluetooth, NFC, or communication with external devices.
+### Processing & Storage
 
-✅ No background network communication
-Behavioral computation and aggregation occur locally without initiating network requests.
-Any optional data transmission (e.g., for research or cloud aggregation) is explicitly controlled, consent-gated, and configurable.
+✅ **On-device computation by default**: Behavioral features and metrics are computed locally on the device whenever possible, minimizing data exposure.
 
-**Processing & Storage**
+✅ **Ephemeral data handling**: Raw interaction events are processed in-memory and are not persisted in long-term storage unless explicitly configured for research or debugging purposes.
 
-✅ On-device computation by default
-Behavioral features and metrics are computed locally on the device whenever possible, minimizing data exposure.
+✅ **No third-party data sharing**: The SDK does not share raw or derived behavioral data with advertisers, analytics providers, or external third parties.
 
-✅ Ephemeral data handling
-Raw interaction events are processed in-memory and are not persisted in long-term storage unless explicitly configured for research or debugging purposes.
+### Regulatory Alignment
 
-✅ No third-party data sharing
-The SDK does not share raw or derived behavioral data with advertisers, analytics providers, or external third parties.
+✅ **GDPR / CCPA aligned**: The SDK adheres to the principles of data minimization, purpose limitation, user consent, and transparency.
 
-**Regulatory Alignment**
+✅ **App Tracking Transparency (ATT) not required**: The SDK does not track users across apps, services, or companies and does not perform cross-app or cross-device identification.
 
-✅ GDPR / CCPA aligned
-The SDK adheres to the principles of:
-
-- data minimization
-- purpose limitation
-- user consent
-- transparency
-
-✅ App Tracking Transparency (ATT) not required
-The SDK does not track users across apps, services, or companies and does not perform cross-app or cross-device identification.
-
-## Platform Support
+## 📱 Platform Support
 
 - ✅ **iOS**: Swift 5+, iOS 12.0+
 - ✅ **Android**: Kotlin, API 21+ (Android 5.0+)
 - ✅ **Flutter**: 3.10.0+
 
-## Requirements
+## ⚡ Performance
+
+The SDK is designed for continuous background operation with minimal resource impact:
+
+- **CPU**: ≤ 1% average
+- **Memory**: ≤ 10 MB peak
+- **Battery**: < 0.3% per hour
+- **Event processing**: < 500 μs per event
+- **UI blocking**: None (all processing on background threads)
+
+## 📋 Requirements
 
 - **Dart SDK**: >=3.0.0 <4.0.0
 - **Flutter**: >=3.10.0
 
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### SDK Not Initializing
 
@@ -570,9 +574,9 @@ flutter clean
 flutter pub get
 ```
 
-## Example App
+## 🧪 Example App
 
-A complete example app demonstrating all SDK features is available in the [`example/`](https://github.com/synheart-ai/synheart-behavior-flutter/tree/main/example) directory.
+A complete example app demonstrating all SDK features is available in the [`example/`](https://github.com/synheart-ai/synheart-behavior-dart/tree/main/example) directory.
 
 To run the example:
 
@@ -589,29 +593,36 @@ The example app includes:
 - Permission handling examples
 - Event type handling demonstrations
 
-## API Reference
+## 📚 API Reference
 
 For detailed API documentation, see the [pub.dev package page](https://pub.dev/packages/synheart_behavior).
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-## License
+## 📄 License
 
 Apache 2.0 License - see [LICENSE](LICENSE) file for details.
 
-## Author
+## 👥 Author
 
 Israel Goytom
 
-## Links
+## 🔗 Links
 
 - 📦 [pub.dev package](https://pub.dev/packages/synheart_behavior)
-- 🔗 [GitHub repository](https://github.com/synheart-ai/synheart-behavior-flutter)
+- 🔗 [GitHub repository](https://github.com/synheart-ai/synheart-behavior-dart)
+- 🔗 [Parent specification repository](https://github.com/synheart-ai/synheart-behavior)
 - 📖 [Example App Guide](EXAMPLE_APP_GUIDE.md)
 
-## Patent Pending Notice
+## 🔗 Related Projects
+
+- [Synheart Focus](https://github.com/synheart-ai/synheart-focus-dart) - Cognitive concentration inference
+- [Synheart Emotion](https://github.com/synheart-ai/synheart-emotion-dart) - Physiological emotion inference from biosignals
+- [Synheart Behavior (Parent)](https://github.com/synheart-ai/synheart-behavior) - Multi-platform SDK specification
+
+## ⚖️ Patent Pending Notice
 
 This project is provided under an open-source license. Certain underlying systems, methods, and architectures described or implemented herein may be covered by one or more pending patent applications.
 
