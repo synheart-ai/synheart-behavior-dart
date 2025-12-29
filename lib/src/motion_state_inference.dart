@@ -501,12 +501,13 @@ class MotionStateInference {
       String finalPredictedLabel = predictedLabel;
       double confidence = 0.0;
 
-      // Use probabilities/scores for confidence calculation only
+      // Use probabilities/scores from model output directly (no calculations)
       if (probabilities.isNotEmpty &&
           probabilities.length == _classLabels.length) {
         // Find the index of the predicted label to get its confidence score
         final predictedIndex = _classLabels.indexOf(predictedLabel);
         if (predictedIndex >= 0 && predictedIndex < probabilities.length) {
+          // Use model's raw score directly - no clamping or normalization
           confidence = probabilities[predictedIndex];
         } else {
           // Fallback: use the highest score if label index not found
@@ -555,19 +556,15 @@ class MotionStateInference {
             }
           }
         }
-
-        // Ensure confidence is in [0, 1] range
-        // If model outputs decision scores (can be negative), we might need to normalize
-        // For now, clamp to [0, 1] for safety
-        confidence = confidence.clamp(0.0, 1.0);
       } else if (probabilities.isNotEmpty) {
         // Fallback: use predicted label from labelOutput if probabilities don't match
         final predictedIndex = _classLabels.indexOf(predictedLabel);
         if (predictedIndex >= 0 && predictedIndex < probabilities.length) {
-          confidence = probabilities[predictedIndex].clamp(0.0, 1.0);
+          // Use model's raw score directly - no clamping
+          confidence = probabilities[predictedIndex];
         } else {
-          confidence =
-              probabilities.reduce((a, b) => a > b ? a : b).clamp(0.0, 1.0);
+          // Use highest score directly - no clamping
+          confidence = probabilities.reduce((a, b) => a > b ? a : b);
         }
       }
 
@@ -576,9 +573,9 @@ class MotionStateInference {
       // Convert to lowercase only for consistency with expected output format
       final outputLabel = finalPredictedLabel.toLowerCase();
 
-      // Confidence is the decision score for the predicted class
-      // For SVC models, scores can be negative, so we don't clamp to [0,1]
-      // Return the score as-is (caller can normalize if needed)
+      // Confidence is the raw decision score from the model
+      // For SVC models, scores can be negative or outside [0,1] range
+      // Return the score as-is directly from model output (no calculations)
       return MapEntry(outputLabel, confidence);
     } catch (e) {
       print('MotionStateInference: Error during prediction: $e');
@@ -682,24 +679,29 @@ class MotionStateInference {
     // Calculate percentage
     final majorStatePct = states.isNotEmpty ? maxCount / states.length : 0.0;
 
-    // Calculate average confidence from actual model outputs
+    // Use confidence from major state prediction directly (no calculations)
+    // Get the confidence of the most common state from model outputs
     double confidence = 0.0;
-    if (confidences.isNotEmpty) {
-      // Option 1: Average confidence across all predictions
-      confidence = confidences.reduce((a, b) => a + b) / confidences.length;
+    if (confidences.isNotEmpty && states.isNotEmpty) {
+      // Find the confidence of the major state (most common prediction)
+      final majorStateIndices = states
+          .asMap()
+          .entries
+          .where((e) => e.value == majorState)
+          .map((e) => e.key)
+          .toList();
 
-      // Option 2: Confidence of the major state predictions only
-      // (uncomment if you prefer this approach)
-      // final majorStateIndices = states.asMap().entries
-      //     .where((e) => e.value == majorState)
-      //     .map((e) => e.key)
-      //     .toList();
-      // if (majorStateIndices.isNotEmpty) {
-      //   final majorStateConfidences = majorStateIndices
-      //       .map((i) => confidences[i])
-      //       .toList();
-      //   confidence = majorStateConfidences.reduce((a, b) => a + b) / majorStateConfidences.length;
-      // }
+      if (majorStateIndices.isNotEmpty) {
+        // Use the confidence from the first occurrence of major state
+        // (raw model output, no averaging or calculations)
+        final firstMajorStateIndex = majorStateIndices.first;
+        if (firstMajorStateIndex < confidences.length) {
+          confidence = confidences[firstMajorStateIndex];
+        }
+      } else {
+        // Fallback: use first confidence if major state not found
+        confidence = confidences.first;
+      }
     }
 
     return MotionState(
