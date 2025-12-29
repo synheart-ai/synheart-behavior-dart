@@ -10,9 +10,7 @@ class StatsCollector {
     private val maxEvents = 100
 
     // Rolling metrics
-    private var latestTypingCadence: Double? = null
-    private var latestInterKeyLatency: Double? = null
-    private var latestBurstLength: Int? = null
+    // Typing metrics are now tracked as separate events, not rolling stats
     private var latestScrollVelocity: Double? = null
     private var latestScrollAcceleration: Double? = null
     private var latestScrollJitter: Double? = null
@@ -64,15 +62,16 @@ class StatsCollector {
             "call" -> {
                 // Track call events
             }
+            "typing" -> {
+                // Typing events are tracked separately in session summaries
+                // No rolling stats needed for typing
+            }
         }
     }
 
     @Synchronized
     fun getCurrentStats(): BehaviorStats {
         return BehaviorStats(
-                typingCadence = latestTypingCadence,
-                interKeyLatency = latestInterKeyLatency,
-                burstLength = latestBurstLength,
                 scrollVelocity = latestScrollVelocity,
                 scrollAcceleration = latestScrollAcceleration,
                 scrollJitter = latestScrollJitter,
@@ -90,9 +89,6 @@ class StatsCollector {
     fun clear() {
         recentEvents.clear()
         appSwitchTimestamps.clear()
-        latestTypingCadence = null
-        latestInterKeyLatency = null
-        latestBurstLength = null
         latestScrollVelocity = null
         latestScrollAcceleration = null
         latestScrollJitter = null

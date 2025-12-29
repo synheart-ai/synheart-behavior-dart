@@ -1,5 +1,5 @@
 import 'dart:async';
-// import 'dart:math' as math;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'models/behavior_event.dart';
 import 'synheart_behavior.dart' show SynheartBehavior;
@@ -559,26 +559,302 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
 }
 
 /// A TextField wrapper for behavior tracking.
-/// Note: Keystrokes are not tracked as separate events in the new event model.
-/// Text input interactions are captured as tap events.
-class BehaviorTextField extends StatelessWidget {
+/// Tracks typing sessions from keyboard open (focus gain) to keyboard close (focus loss).
+/// Calculates all typing metrics and emits a typing event when the session ends.
+class BehaviorTextField extends StatefulWidget {
   final TextEditingController? controller;
   final InputDecoration? decoration;
   final int? maxLines;
+  final Function(BehaviorEvent)? onTypingEvent;
 
   const BehaviorTextField({
     super.key,
     this.controller,
     this.decoration,
     this.maxLines,
+    this.onTypingEvent,
   });
+
+  @override
+  State<BehaviorTextField> createState() => _BehaviorTextFieldState();
+
+  /// Static method to end all active typing sessions
+  /// Called when session ends or app goes to background
+  static void endAllTypingSessions() {
+    _BehaviorTextFieldState.endAllTypingSessions();
+  }
+}
+
+class _BehaviorTextFieldState extends State<BehaviorTextField> {
+  late TextEditingController _controller;
+  late FocusNode _focusNode;
+
+  // Typing session tracking
+  DateTime? _sessionStartTime;
+  DateTime? _lastKeystrokeTime;
+  int _previousLength = 0;
+  List<int> _interKeyLatencies =
+      []; // Store latencies in milliseconds (only actual intervals, no 0 for first keystroke)
+
+  // Static list to track all active BehaviorTextField instances for session/app lifecycle handling
+  static final List<_BehaviorTextFieldState> _activeInstances = [];
+
+  // Constants from note-4.md
+  static const int gapThresholdMs = 5000; // 5 seconds for gap count
+  static const int activityThresholdMs = 2000; // 2 seconds for activity ratio
+  static const int deepTypingDurationSeconds = 60; // 1 minute
+  static const double vMax = 10.0; // taps/s for speed normalization
+  static const double w1 = 0.4; // weight for typing speed
+  static const double w2 = 0.35; // weight for gap behavior
+  static const double w3 = 0.25; // weight for cadence stability
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = widget.controller ?? TextEditingController();
+    _focusNode = FocusNode();
+    _controller.addListener(_onTextChanged);
+    _focusNode.addListener(_onFocusChanged);
+    _previousLength = _controller.text.length;
+    // Register this instance for session/app lifecycle handling
+    _activeInstances.add(this);
+  }
+
+  @override
+  void dispose() {
+    // End any active session before disposing
+    _endTypingSession();
+    // Unregister this instance
+    _activeInstances.remove(this);
+    if (widget.controller == null) {
+      _controller.dispose();
+    } else {
+      _controller.removeListener(_onTextChanged);
+    }
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  /// Static method to end all active typing sessions
+  /// Called when session ends or app goes to background
+  static void endAllTypingSessions() {
+    for (final instance
+        in List<_BehaviorTextFieldState>.from(_activeInstances)) {
+      instance._endTypingSession();
+    }
+  }
+
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus) {
+      // Keyboard opened - start typing session
+      _startTypingSession();
+    } else {
+      // Keyboard closed or focus lost - end typing session immediately
+      _endTypingSession();
+    }
+  }
+
+  void _startTypingSession() {
+    // Always start fresh session when focus is gained
+    _sessionStartTime = DateTime.now();
+    _lastKeystrokeTime = null;
+    _interKeyLatencies.clear();
+    _previousLength = _controller.text.length;
+  }
+
+  void _endTypingSession() {
+    // If we have an active session with keystrokes, emit the event
+    if (_sessionStartTime != null && _interKeyLatencies.isNotEmpty) {
+      // Emit typing session event
+      _emitTypingSessionEvent();
+    }
+
+    // Always reset session state when focus is lost
+    _sessionStartTime = null;
+    _lastKeystrokeTime = null;
+    _interKeyLatencies.clear();
+  }
+
+  void _onTextChanged() {
+    // Only track keystrokes when text field has focus
+    if (!_focusNode.hasFocus) {
+      _previousLength = _controller.text.length;
+      return;
+    }
+
+    final currentLength = _controller.text.length;
+    final now = DateTime.now();
+
+    // Only detect when text is added (not deleted)
+    if (currentLength > _previousLength) {
+      // Start session if not already started
+      if (_sessionStartTime == null) {
+        _startTypingSession();
+      }
+
+      // Calculate inter-key latency
+      // Only store actual intervals (not 0 for first keystroke)
+      if (_lastKeystrokeTime != null) {
+        final latency = now.difference(_lastKeystrokeTime!).inMilliseconds;
+        _interKeyLatencies.add(latency);
+      }
+      // First keystroke: don't store anything (no previous keystroke to measure interval)
+
+      _lastKeystrokeTime = now;
+    }
+
+    _previousLength = currentLength;
+  }
+
+  void _emitTypingSessionEvent() {
+    if (_sessionStartTime == null || _interKeyLatencies.isEmpty) {
+      return;
+    }
+
+    final sessionEndTime = _lastKeystrokeTime ?? DateTime.now();
+    final durationMs =
+        sessionEndTime.difference(_sessionStartTime!).inMilliseconds;
+    final durationSeconds = durationMs / 1000.0;
+
+    // N = typing_tap_count (total number of keyboard tap events)
+    final typingTapCount = _interKeyLatencies.length;
+
+    // typing_speed = N / T (taps per second)
+    final typingSpeed =
+        durationSeconds > 0 ? typingTapCount / durationSeconds : 0.0;
+
+    // mean_inter_tap_interval_ms = μ_Δt = (1 / (N - 1)) × Σ(i=2 to N) Δtᵢ
+    // The average time elapsed between consecutive keyboard tap events
+    // Sum of all consecutive intervals / (n-1) where n = number of keystrokes
+    double meanInterTapIntervalMs = 0.0;
+    if (_interKeyLatencies.isNotEmpty) {
+      // _interKeyLatencies contains only actual intervals (no 0 for first keystroke)
+      // If we have N keystrokes, we have N-1 intervals stored in _interKeyLatencies
+      final sum =
+          _interKeyLatencies.fold<int>(0, (sum, latency) => sum + latency);
+      // Number of intervals = number of keystrokes - 1
+      final intervalCount =
+          typingTapCount > 1 ? typingTapCount - 1 : _interKeyLatencies.length;
+      meanInterTapIntervalMs = intervalCount > 0 ? sum / intervalCount : 0.0;
+    }
+
+    // typing_cadence_variability: Standard deviation of (mean_inter_tap_interval_ms)
+    // This is the standard deviation of inter-tap intervals around the mean
+    // IMPORTANT: Units must match mean_inter_tap_interval_ms
+    // Both mean_inter_tap_interval_ms and typing_cadence_variability are ALWAYS in milliseconds
+    // - mean_inter_tap_interval_ms is calculated from _interKeyLatencies (stored in milliseconds)
+    // - typing_cadence_variability is the standard deviation of those same millisecond values
+    // σ_Δt = √( (1 / (N - 2)) × Σ(i=2 to N) (Δtᵢ - μ_Δt)² )
+    // Where N = number of keystrokes, so we have (N-1) intervals
+    // Formula denominator is (N-2), so we need at least 3 keystrokes (2 intervals) to calculate
+    double typingCadenceVariability = 0.0;
+    if (typingTapCount >= 3 &&
+        _interKeyLatencies.length >= 2 &&
+        meanInterTapIntervalMs > 0) {
+      // _interKeyLatencies contains only actual intervals (N-1 intervals for N keystrokes)
+      // Formula uses (N-2) as denominator: if we have (N-1) intervals, divide by (N-1-1) = (N-2)
+      final nIntervals =
+          _interKeyLatencies.length; // This is (N-1) where N = keystrokes
+      final denominator =
+          nIntervals - 1; // This gives (N-2) as required by formula
+
+      if (denominator > 0) {
+        // Calculate standard deviation of intervals around the mean
+        // Both _interKeyLatencies and meanInterTapIntervalMs are in milliseconds
+        // Therefore typingCadenceVariability will also be in milliseconds (same units)
+        final sumSquaredDiffs = _interKeyLatencies
+            .map((latency) =>
+                (latency - meanInterTapIntervalMs) *
+                (latency - meanInterTapIntervalMs))
+            .fold<double>(0.0, (sum, diff) => sum + diff);
+
+        final variance = sumSquaredDiffs / denominator;
+        typingCadenceVariability = math.sqrt(variance);
+        // typingCadenceVariability is now in the same units as meanInterTapIntervalMs
+      }
+    }
+
+    // typing_cadence_stability = 1 - min(1, (σ_Δt / μ_Δt))
+    double typingCadenceStability = 0.0;
+    if (meanInterTapIntervalMs > 0 && typingCadenceVariability > 0) {
+      final cv = typingCadenceVariability / meanInterTapIntervalMs;
+      typingCadenceStability = (1.0 - math.min(1.0, cv)).clamp(0.0, 1.0);
+    }
+
+    // typing_gap_count = Σ(i=2 to N) 1(Δtᵢ > τ_gap) where τ_gap = 5 seconds
+    final typingGapCount =
+        _interKeyLatencies.where((latency) => latency > gapThresholdMs).length;
+
+    // typing_gap_ratio = typing_gap_count / (N - 1)
+    // N = number of keystrokes, so (N - 1) = number of intervals
+    final intervalCount =
+        typingTapCount > 1 ? typingTapCount - 1 : _interKeyLatencies.length;
+    final typingGapRatio =
+        intervalCount > 0 ? typingGapCount / intervalCount : 0.0;
+
+    // typing_burstiness
+    // Step 1: B_raw = (σ_ITI - μ_ITI) / (σ_ITI + μ_ITI)
+    // Step 2: B_norm = (B_raw + 1) / 2
+    double typingBurstiness = 0.0;
+    if (_interKeyLatencies.length > 1 &&
+        meanInterTapIntervalMs > 0 &&
+        typingCadenceVariability > 0) {
+      final bRaw = (typingCadenceVariability - meanInterTapIntervalMs) /
+          (typingCadenceVariability + meanInterTapIntervalMs);
+      typingBurstiness = ((bRaw + 1.0) / 2.0).clamp(0.0, 1.0);
+    }
+
+    // typing_activity_ratio = (Σ(i=2 to N) min(Δtᵢ, τ_activity)) / T
+    // where τ_activity = 2 seconds
+    final activeTypingTime = _interKeyLatencies.fold<int>(
+        0, (sum, latency) => sum + math.min(latency, activityThresholdMs));
+    final typingActivityRatio =
+        durationMs > 0 ? (activeTypingTime / durationMs).clamp(0.0, 1.0) : 0.0;
+
+    // typing_speed_norm = min(1, (typing_speed / v_max))
+    final typingSpeedNorm = math.min(1.0, typingSpeed / vMax);
+
+    // typing_interaction_intensity = w₁ · typing_speed_norm + w₂ · (1 - typing_gap_ratio) + w₃ · typing_cadence_stability
+    final typingInteractionIntensity = (w1 * typingSpeedNorm +
+            w2 * (1.0 - typingGapRatio) +
+            w3 * typingCadenceStability)
+        .clamp(0.0, 1.0);
+
+    // deep_typing = true if duration ≥ 60 seconds (1 minute)
+    // ML engineer requirement: Only check duration, ignore other metrics
+    final deepTyping = durationSeconds >= deepTypingDurationSeconds;
+
+    // Create typing session event with all calculated metrics
+    final typingEvent = BehaviorEvent.typing(
+      sessionId: 'current',
+      typingTapCount: typingTapCount,
+      typingSpeed: typingSpeed,
+      meanInterTapIntervalMs: meanInterTapIntervalMs,
+      typingCadenceVariability: typingCadenceVariability,
+      typingCadenceStability: typingCadenceStability,
+      typingGapCount: typingGapCount,
+      typingGapRatio: typingGapRatio,
+      typingBurstiness: typingBurstiness,
+      typingActivityRatio: typingActivityRatio,
+      typingInteractionIntensity: typingInteractionIntensity,
+      durationSeconds: durationSeconds.round(),
+      startAt: _sessionStartTime!.toUtc().toIso8601String(),
+      endAt: sessionEndTime.toUtc().toIso8601String(),
+      deepTyping: deepTyping,
+    );
+
+    // Emit event through callback
+    widget.onTypingEvent?.call(typingEvent);
+  }
 
   @override
   Widget build(BuildContext context) {
     return TextField(
-      controller: controller,
-      decoration: decoration,
-      maxLines: maxLines,
+      controller: _controller,
+      focusNode: _focusNode,
+      decoration: widget.decoration,
+      maxLines: widget.maxLines,
     );
   }
 }

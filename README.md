@@ -11,6 +11,7 @@
 A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. The SDK transforms low-level digital interaction events into structured numerical representations of behavior across event and session. By modeling interaction timing, intensity, fragmentation, and interruption patterns without collecting content or personal data, the SDK provides stable, interpretable metrics to represent digital behavior.
 
 These behavioral signals power downstream systems such as:
+
 - Focus and distraction inference
 - Digital wellness analytics
 - Cognitive load and fatigue estimation
@@ -21,6 +22,7 @@ These behavioral signals power downstream systems such as:
 - **Privacy-First**: No text, content, or personally identifiable information (PII) collected—only timing-based signals
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
+- **Motion State Prediction**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using ML model inference
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android with native implementations
@@ -31,7 +33,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.0.1
+  synheart_behavior: ^0.1.0
 ```
 
 Then run:
@@ -216,11 +218,12 @@ Each event includes:
 
 ## 🔐 Permissions
 
-**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking. 
+**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking.
 
 No content-level information is ever collected or stored. For notifications, the SDK does not record notification text, sender identity, application source, or semantic meaning. For phone calls, the SDK does not record audio, voice data, call content, or call participants.
 
 Instead, the SDK records only event-level metadata, such as:
+
 - the occurrence of a notification or call,
 - the timestamp of the event,
 - and the user’s interaction outcome (e.g., opened, dismissed, ignored).
@@ -275,7 +278,7 @@ final config = BehaviorConfig(
   // Enable/disable signal types
   enableInputSignals: true,        // Scroll, tap, swipe gestures
   enableAttentionSignals: true,    // App switching, idle gaps, session stability
-  enableMotionLite: false,         // Device motion (optional, may impact battery)
+  enableMotionLite: true,          // Device motion + activity recognition (LAYING, MOVING, SITTING, STANDING)
 
   // Session configuration
   sessionIdPrefix: 'MYAPP',        // Custom session ID prefix (default: 'SESS')
@@ -349,6 +352,13 @@ print('App Switches: ${summary.activitySummary.appSwitchCount}');
 // Notification summary
 print('Notifications: ${summary.notificationSummary.notificationCount}');
 print('Ignore Rate: ${summary.notificationSummary.notificationIgnoreRate}');
+
+// Motion state (if enableMotionLite is true)
+if (summary.motionState != null) {
+  print('Motion State: ${summary.motionState!.majorState}');
+  print('Confidence: ${summary.motionState!.confidence}');
+  print('States: ${summary.motionState!.state}');
+}
 ```
 
 ### Current Statistics
@@ -377,6 +387,7 @@ if (behavior.isInitialized) {
 ### Core Behavioral Metrics
 
 Session-level outputs include:
+
 - `interactionIntensity`: Overall interaction rate and engagement
 - `distractionScore`: Behavioral proxy for distraction (0-1)
 - `focusHint`: Behavioral proxy for focus quality (0-1)
@@ -404,7 +415,6 @@ behavior.createBehaviorTextField(
   ),
 )
 ```
-
 
 ### Custom Event Sending
 

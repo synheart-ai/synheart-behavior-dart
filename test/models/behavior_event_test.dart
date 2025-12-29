@@ -69,7 +69,7 @@ void main() {
 
     group('BehaviorEventType', () {
       test('has all expected event types', () {
-        expect(BehaviorEventType.values.length, 5);
+        expect(BehaviorEventType.values.length, 6);
 
         expect(BehaviorEventType.values, contains(BehaviorEventType.scroll));
         expect(BehaviorEventType.values, contains(BehaviorEventType.tap));
@@ -77,6 +77,7 @@ void main() {
         expect(
             BehaviorEventType.values, contains(BehaviorEventType.notification));
         expect(BehaviorEventType.values, contains(BehaviorEventType.call));
+        expect(BehaviorEventType.values, contains(BehaviorEventType.typing));
       });
 
       test('event type enum name matches string', () {

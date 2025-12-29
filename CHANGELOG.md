@@ -33,12 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Android API 21+ (Android 5.0+)
 - Flutter 3.10.0+
 
-## [Unreleased]
+## [0.1.0] - 2025-12-29
 
-### Planned
+### Added
 
-- Motion-lite signals (device orientation, shake patterns)
-- Cognitive fragmentation index
-- Per-app behavior profiles
-- Fatigue markers
-- On-device personalization (behavior embeddings)
+- Motion state inference with ML model (LAYING, MOVING, SITTING, STANDING)
+- Typing session tracking and comprehensive typing metrics
+- Emotion metrics integration
+- Motion feature extractor for device motion signals
+- Enhanced behavior session with expanded metrics
+- ONNX model support for motion state prediction
+- Label mapping for motion state classification
+
+### Features
+
+- Real-time motion state prediction using on-device ML inference
+- Typing activity ratio, cadence, and burstiness metrics
+- Deep focus block detection
+- Enhanced behavioral metrics (focus hint, distraction score)
+- Improved session summaries with motion state information

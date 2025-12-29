@@ -20,6 +20,7 @@ public class BehaviorSDK {
     private let gestureCollector: GestureCollector
     private let notificationCollector: NotificationCollector
     private let callCollector: CallCollector
+    private let motionSignalCollector: MotionSignalCollector
 
     // Lifecycle tracking
     private var lastInteractionTime = Date()
@@ -44,6 +45,7 @@ public class BehaviorSDK {
         self.gestureCollector = GestureCollector(config: config)
         self.notificationCollector = NotificationCollector(config: config)
         self.callCollector = CallCollector(config: config)
+        self.motionSignalCollector = MotionSignalCollector(config: config)
     }
 
     public func initialize() {
@@ -155,6 +157,9 @@ public class BehaviorSDK {
         
         lastInteractionTime = now
         // Don't update lastAppUseTime here - it will be updated when session ends
+        
+        // Start motion data collection if enabled
+        motionSignalCollector.startSession(sessionStartTime: nowMs)
         
         // Register for orientation change notifications
         NotificationCenter.default.addObserver(
@@ -308,11 +313,17 @@ public class BehaviorSDK {
         // Compute behavioral metrics from events
         let behavioralMetrics = computeBehavioralMetrics(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
         
+        // Compute typing session summary
+        let typingSessionSummary = computeTypingSessionSummary(data: data, durationMs: Int64(duration))
+        
+        // Collect motion data if enabled
+        let motionData = motionSignalCollector.stopSession()
+        
         // Build comprehensive summary
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         
-        let summary: [String: Any] = [
+        var summary: [String: Any] = [
             "session_id": sessionId,
             "start_at": formatter.string(from: Date(timeIntervalSince1970: data.startTime / 1000)),
             "end_at": formatter.string(from: Date(timeIntervalSince1970: data.endTime / 1000)),
@@ -345,7 +356,28 @@ public class BehaviorSDK {
                 "charging": endCharging
             ]
         ]
-
+        
+        // Add typing session summary if available
+        if !typingSessionSummary.isEmpty {
+            summary["typing_session_summary"] = typingSessionSummary
+        }
+        
+        // Add motion data if available
+        if !motionData.isEmpty {
+            let motionDataJson = motionData.map { dataPoint -> [String: Any] in
+                return [
+                    "timestamp": dataPoint.timestamp,
+                    "accelerometer_x": dataPoint.accelerometerX,
+                    "accelerometer_y": dataPoint.accelerometerY,
+                    "accelerometer_z": dataPoint.accelerometerZ,
+                    "gyroscope_x": dataPoint.gyroscopeX,
+                    "gyroscope_y": dataPoint.gyroscopeY,
+                    "gyroscope_z": dataPoint.gyroscopeZ
+                ]
+            }
+            summary["motion_data"] = motionDataJson
+        }
+        
         sessionData.removeValue(forKey: sessionId)
         NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         return summary
@@ -404,7 +436,7 @@ public class BehaviorSDK {
         // Step 4: Compute task_switch_cost = session duration during app_switch
         // Since we don't track individual app switch durations, estimate as average time per switch
         let taskSwitchCost = data.appSwitchCount > 0 ? 
-            min(10000, Int(durationMs) / data.appSwitchCount) : 0
+            max(0, min(10000, Int(durationMs) / data.appSwitchCount)) : 0
         
         // Step 5: Compute idle_ratio = total_idle_time / session_duration
         // where total_idle_time = Σ Δtᵢ where Δtᵢ > idle_threshold (30 seconds)
@@ -437,12 +469,33 @@ public class BehaviorSDK {
         // Step 10: Compute focus_hint = 1 - distraction_score
         let focusHint = 1.0 - behavioralDistractionScore
         
-        // Step 11: Compute interaction_intensity = total_events_except_interruptions / session_duration
+        // Step 11: Compute interaction_intensity = [total events except interruptions and typing +
+        // (Typing durations/10s)] / session_duration
         // Interruptions = notifications, calls, app switches
+        // Typing events are handled separately: we add (total_typing_duration_seconds / 10) instead
+        // of counting typing events
         let interruptionCount = notificationCount + callCount + data.appSwitchCount
-        let totalEventsExceptInterruptions = data.eventCount - interruptionCount
+        
+        // Count typing events to exclude them from event count
+        let typingEvents = data.events.filter { $0.eventType == "typing" }
+        let typingEventCount = typingEvents.count
+        
+        // Calculate total typing duration in seconds (sum of all typing session durations)
+        let totalTypingDurationSeconds = typingEvents.isEmpty ? 0.0 :
+            Double(typingEvents.compactMap { event -> Int? in
+                if let duration = event.metrics["duration"] as? NSNumber {
+                    return duration.intValue
+                }
+                return nil
+            }.reduce(0, +))
+        
+        // Total events excluding interruptions and typing events
+        let totalEventsExceptInterruptionsAndTyping = data.eventCount - interruptionCount - typingEventCount
+        
+        // Interaction intensity = [non-interruption non-typing events + (typing_duration/10)] / session_duration
+        let typingContribution = totalTypingDurationSeconds / 10.0
         let interactionIntensity = durationSeconds > 0 ? 
-            max(0.0, Double(totalEventsExceptInterruptions) / durationSeconds) : 0.0
+            max(0.0, (Double(totalEventsExceptInterruptionsAndTyping) + typingContribution) / durationSeconds) : 0.0
         
         // Step 12: Compute deep_focus_block = continuous app engagement ≥ 120s without
         // idle, app switch, notification or call event
@@ -534,37 +587,187 @@ public class BehaviorSDK {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         
-        var intervals: [Double] = []
+        // Step 1: Calculate all inter-event gaps with typing flag
+        struct GapInfo {
+            let gap: Double
+            let involvesTyping: Bool
+        }
+        
+        var gaps: [GapInfo] = []
         for i in 1..<events.count {
             if let prevDate = formatter.date(from: events[i-1].timestamp),
                let currDate = formatter.date(from: events[i].timestamp) {
-                let interval = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
-                intervals.append(interval)
+                let gap = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
+                
+                // Check if this gap involves typing (either previous or current event is typing)
+                let prevIsTyping = events[i - 1].eventType == "typing"
+                let currIsTyping = events[i].eventType == "typing"
+                let involvesTyping = prevIsTyping || currIsTyping
+                
+                gaps.append(GapInfo(gap: gap, involvesTyping: involvesTyping))
             }
         }
         
-        if intervals.isEmpty {
+        if gaps.isEmpty {
             return 0.0
         }
         
-        let mean = intervals.reduce(0, +) / Double(intervals.count)
+        // Step 2: Find max gap excluding gaps that involve typing
+        let maxNonTypingGap = gaps
+            .filter { !$0.involvesTyping }
+            .map { $0.gap }
+            .max() ?? 0.0
+        
+        // Step 3: Cap typing gaps at max non-typing gap
+        // If maxNonTypingGap is 0 (no non-typing events), use the gaps as-is
+        let cappedGaps: [Double] = if maxNonTypingGap > 0 {
+            gaps.map { gapInfo in
+                if gapInfo.involvesTyping {
+                    // Cap typing gaps at max non-typing gap
+                    return min(gapInfo.gap, maxNonTypingGap)
+                } else {
+                    return gapInfo.gap
+                }
+            }
+        } else {
+            // If all events are typing or no non-typing gaps found, use gaps as-is
+            gaps.map { $0.gap }
+        }
+        
+        // Step 4: Calculate mean and standard deviation using capped gaps
+        let mean = cappedGaps.reduce(0, +) / Double(cappedGaps.count)
         
         if mean == 0.0 {
             return 0.0
         }
         
-        let variance = intervals.map { pow($0 - mean, 2) }.reduce(0, +) / Double(intervals.count)
+        let variance = cappedGaps.map { pow($0 - mean, 2) }.reduce(0, +) / Double(cappedGaps.count)
         let stdDev = sqrt(variance)
         
         if stdDev == 0.0 {
             return 0.0
         }
         
-        // Burstiness formula: (σ - μ)/(σ + μ) remapped to [0,1]
+        // Step 5: Apply Barabási's burstiness formula: (σ - μ)/(σ + μ) remapped to [0,1]
         let burstinessRaw = (stdDev - mean) / (stdDev + mean)
         let burstiness = max(0.0, min(1.0, (burstinessRaw + 1.0) / 2.0))
         
         return burstiness
+    }
+    
+    private func computeTypingSessionSummary(data: SessionData, durationMs: Int64) -> [String: Any] {
+        // Extract all typing events
+        let typingEvents = data.events.filter { $0.eventType == "typing" }
+        
+        if typingEvents.isEmpty {
+            return [
+                "typing_session_count": 0,
+                "average_keystrokes_per_session": 0.0,
+                "average_typing_session_duration": 0.0,
+                "average_typing_speed": 0.0,
+                "average_typing_gap": 0.0,
+                "average_inter_tap_interval": 0.0,
+                "typing_cadence_stability": 0.0,
+                "burstiness_of_typing": 0.0,
+                "total_typing_duration": 0,
+                "active_typing_ratio": 0.0,
+                "typing_contribution_to_interaction_intensity": 0.0,
+                "deep_typing_blocks": 0,
+                "typing_fragmentation": 0.0,
+                "typing_metrics": [] as [[String: Any]]
+            ]
+        }
+        
+        // Each typing event represents one typing session (from Flutter BehaviorTextField)
+        let typingSessionCount = typingEvents.count
+        
+        // Extract metrics from each typing event
+        let sessionMetrics = typingEvents.map { event -> [String: Any] in
+            return [
+                "typing_tap_count": (event.metrics["typing_tap_count"] as? NSNumber)?.intValue ?? 0,
+                "typing_speed": (event.metrics["typing_speed"] as? NSNumber)?.doubleValue ?? 0.0,
+                "duration": (event.metrics["duration"] as? NSNumber)?.intValue ?? 0,
+                "mean_inter_tap_interval_ms": (event.metrics["mean_inter_tap_interval_ms"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_cadence_stability": (event.metrics["typing_cadence_stability"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_gap_ratio": (event.metrics["typing_gap_ratio"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_burstiness": (event.metrics["typing_burstiness"] as? NSNumber)?.doubleValue ?? 0.0,
+                "deep_typing": (event.metrics["deep_typing"] as? Bool) ?? false,
+                "start_at": (event.metrics["start_at"] as? String) ?? "",
+                "end_at": (event.metrics["end_at"] as? String) ?? ""
+            ]
+        }
+        
+        // Aggregate metrics
+        let averageKeystrokesPerSession = Double(sessionMetrics.map { ($0["typing_tap_count"] as? Int) ?? 0 }.reduce(0, +)) / Double(sessionMetrics.count)
+        let averageTypingSessionDuration = Double(sessionMetrics.map { ($0["duration"] as? Int) ?? 0 }.reduce(0, +)) / Double(sessionMetrics.count)
+        let averageTypingSpeed = sessionMetrics.map { ($0["typing_speed"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Calculate average typing gap from mean_inter_tap_interval_ms
+        let averageTypingGap = sessionMetrics.map { ($0["mean_inter_tap_interval_ms"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Calculate average inter-tap interval across all sessions
+        let averageInterTapInterval = sessionMetrics.isEmpty ? 0.0 : 
+            sessionMetrics.map { ($0["mean_inter_tap_interval_ms"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Average cadence stability across sessions
+        let typingCadenceStability = sessionMetrics.map { ($0["typing_cadence_stability"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Average burstiness across sessions
+        let burstinessOfTyping = sessionMetrics.map { ($0["typing_burstiness"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Total typing duration (sum of all session durations)
+        let totalTypingDuration = sessionMetrics.map { ($0["duration"] as? Int) ?? 0 }.reduce(0, +)
+        
+        // Active typing ratio = total typing duration / session duration
+        let activeTypingRatio = durationMs > 0 ? 
+            max(0.0, min(1.0, Double(totalTypingDuration * 1000) / Double(durationMs))) : 0.0
+        
+        // Typing contribution to interaction intensity = typing events / total events
+        let typingContributionToInteractionIntensity = data.eventCount > 0 ? 
+            Double(typingEvents.count) / Double(data.eventCount) : 0.0
+        
+        // Deep typing blocks = sessions with deep_typing == true
+        let deepTypingBlocks = sessionMetrics.filter { ($0["deep_typing"] as? Bool) ?? false }.count
+        
+        // Typing fragmentation = average gap ratio across sessions
+        let typingFragmentation = sessionMetrics.map { ($0["typing_gap_ratio"] as? Double) ?? 0.0 }.reduce(0.0, +) / Double(sessionMetrics.count)
+        
+        // Individual typing session metrics (for detailed breakdown)
+        let individualMetrics = typingEvents.map { event -> [String: Any] in
+            return [
+                "start_at": (event.metrics["start_at"] as? String) ?? "",
+                "end_at": (event.metrics["end_at"] as? String) ?? "",
+                "duration": (event.metrics["duration"] as? NSNumber)?.intValue ?? 0,
+                "deep_typing": (event.metrics["deep_typing"] as? Bool) ?? false,
+                "typing_tap_count": (event.metrics["typing_tap_count"] as? NSNumber)?.intValue ?? 0,
+                "typing_speed": (event.metrics["typing_speed"] as? NSNumber)?.doubleValue ?? 0.0,
+                "mean_inter_tap_interval_ms": (event.metrics["mean_inter_tap_interval_ms"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_cadence_variability": (event.metrics["typing_cadence_variability"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_cadence_stability": (event.metrics["typing_cadence_stability"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_gap_count": (event.metrics["typing_gap_count"] as? NSNumber)?.intValue ?? 0,
+                "typing_gap_ratio": (event.metrics["typing_gap_ratio"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_burstiness": (event.metrics["typing_burstiness"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_activity_ratio": (event.metrics["typing_activity_ratio"] as? NSNumber)?.doubleValue ?? 0.0,
+                "typing_interaction_intensity": (event.metrics["typing_interaction_intensity"] as? NSNumber)?.doubleValue ?? 0.0
+            ]
+        }
+        
+        return [
+            "typing_session_count": typingSessionCount,
+            "average_keystrokes_per_session": averageKeystrokesPerSession,
+            "average_typing_session_duration": averageTypingSessionDuration,
+            "average_typing_speed": averageTypingSpeed,
+            "average_typing_gap": averageTypingGap,
+            "average_inter_tap_interval": averageInterTapInterval,
+            "typing_cadence_stability": typingCadenceStability,
+            "burstiness_of_typing": burstinessOfTyping,
+            "total_typing_duration": totalTypingDuration,
+            "active_typing_ratio": activeTypingRatio,
+            "typing_contribution_to_interaction_intensity": typingContributionToInteractionIntensity,
+            "deep_typing_blocks": deepTypingBlocks,
+            "typing_fragmentation": typingFragmentation,
+            "typing_metrics": individualMetrics
+        ]
     }
     
     private func computeDeepFocusBlocks(events: [BehaviorEvent], durationMs: Int64, sessionStartTime: Double, sessionEndTime: Double, notificationCount: Int, callCount: Int, appSwitchCount: Int) -> [[String: Any]] {

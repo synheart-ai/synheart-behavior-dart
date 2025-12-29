@@ -14,6 +14,7 @@ import 'models/behavior_stats.dart';
 // import 'behavior_feature_extractor.dart';
 import 'behavior_gesture_detector.dart'
     show BehaviorGestureDetector, BehaviorTextField;
+import 'motion_state_inference.dart';
 
 /// Main entry point for the Synheart Behavioral SDK.
 ///
@@ -63,6 +64,7 @@ class SynheartBehavior {
 
   bool _initialized = false;
   String? _currentSessionId;
+  final MotionStateInference _motionStateInference = MotionStateInference();
 
   SynheartBehavior._(this._config);
 
@@ -79,6 +81,14 @@ class SynheartBehavior {
 
       // Initialize native SDK
       await _channel.invokeMethod('initialize', config?.toJson() ?? {});
+
+      // Load motion state inference model
+      try {
+        await behavior._motionStateInference.loadModel();
+      } catch (e) {
+        print('Warning: Failed to load motion state inference model: $e');
+        // Continue initialization even if model loading fails
+      }
 
       // Window features - commented out (not needed for real-time event tracking)
       // behavior._startWindowUpdates();
@@ -249,8 +259,50 @@ class SynheartBehavior {
           : throw Exception('Invalid result type: ${result.runtimeType}');
 
       // print('Parsing summary from resultMap...');
-      final summary = BehaviorSessionSummary.fromJson(resultMap);
+      var summary = BehaviorSessionSummary.fromJson(resultMap);
       // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
+
+      // Run motion state inference if motion data is available
+      if (summary.motionData != null && summary.motionData!.isNotEmpty) {
+        if (!_motionStateInference.isLoaded) {
+          try {
+            await _motionStateInference.loadModel();
+          } catch (e) {
+            print('ERROR: Failed to load model: $e');
+          }
+        }
+
+        if (_motionStateInference.isLoaded) {
+          try {
+            final motionState = await _motionStateInference.inferMotionState(
+              summary.motionData!,
+            );
+
+            // Create updated summary with motion state
+            summary = BehaviorSessionSummary(
+              sessionId: summary.sessionId,
+              startAt: summary.startAt,
+              endAt: summary.endAt,
+              microSession: summary.microSession,
+              os: summary.os,
+              appId: summary.appId,
+              appName: summary.appName,
+              sessionSpacing: summary.sessionSpacing,
+              motionState: motionState,
+              deviceContext: summary.deviceContext,
+              activitySummary: summary.activitySummary,
+              behavioralMetrics: summary.behavioralMetrics,
+              notificationSummary: summary.notificationSummary,
+              systemState: summary.systemState,
+              typingSessionSummary: summary.typingSessionSummary,
+              motionData: summary.motionData,
+            );
+          } catch (e) {
+            print('ERROR: Failed to run motion state inference: $e');
+            // Continue without motion state if inference fails
+          }
+        }
+      }
 
       _activeSessions.remove(sessionId);
       if (_currentSessionId == sessionId) {
@@ -416,6 +468,9 @@ class SynheartBehavior {
       // Window features - commented out (not needed for real-time event tracking)
       // Clear window aggregator
       // _windowAggregator.clear();
+
+      // Dispose motion state inference
+      _motionStateInference.dispose();
 
       _initialized = false;
     } catch (e) {
