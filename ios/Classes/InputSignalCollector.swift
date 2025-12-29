@@ -127,59 +127,23 @@ class InputSignalCollector: NSObject, UITextFieldDelegate, UITextViewDelegate {
     }
 
     private func emitTypingCadence(interKeyLatency: Double) {
-        let now = Date().timeIntervalSince1970 * 1000
-        let recentKeys = keystrokeTimestamps.filter { $0 > now - 5000 }
-
-        let cadence: Double
-        if recentKeys.count > 1 {
-            let timeSpan = recentKeys.last! - recentKeys.first!
-            cadence = timeSpan > 0 ? Double(recentKeys.count - 1) * 1000.0 / timeSpan : 0.0
-        } else {
-            cadence = 0.0
-        }
+        // In new model, keystrokes are tracked as tap events
+        // Estimate tap duration (typically 50-150ms for keyboard taps)
+        let estimatedTapDuration = Int(max(50, min(150, interKeyLatency)))
 
         eventHandler?(BehaviorEvent(
             sessionId: "current",
-            timestamp: Int64(now),
-            type: "typingCadence",
-            payload: [
-                "cadence": cadence,
-                "inter_key_latency": interKeyLatency,
-                "keys_in_window": recentKeys.count
+            eventType: "tap",
+            metrics: [
+                "tap_duration_ms": estimatedTapDuration,
+                "long_press": false
             ]
         ))
     }
 
     private func emitTypingBurst(burstLength: Int) {
-        guard burstLength >= 3 else { return } // Only emit significant bursts
-
-        var recentLatencies: [Double] = []
-        let count = min(keystrokeTimestamps.count, burstLength)
-        for i in 1..<count {
-            recentLatencies.append(keystrokeTimestamps[i] - keystrokeTimestamps[i - 1])
-        }
-
-        let avgLatency = recentLatencies.isEmpty ? 0.0 : recentLatencies.reduce(0, +) / Double(recentLatencies.count)
-
-        let variance: Double
-        if recentLatencies.count > 1 {
-            let mean = avgLatency
-            let squaredDiffs = recentLatencies.map { pow($0 - mean, 2) }
-            variance = squaredDiffs.reduce(0, +) / Double(squaredDiffs.count)
-        } else {
-            variance = 0.0
-        }
-
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            type: "typingBurst",
-            payload: [
-                "burst_length": burstLength,
-                "inter_key_latency": avgLatency,
-                "variance": variance
-            ]
-        ))
+        // Bursts are now tracked as individual tap events
+        // No need to emit separate burst events
     }
 
     // MARK: - UITextFieldDelegate

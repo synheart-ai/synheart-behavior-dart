@@ -79,6 +79,16 @@ coverage/
 # Documentation notes (local only, not for version control)
 note.md
 note-2.md
+metrics.md
+PERMISSIONS_DATA_MATRIX.md
+note-3.md
+note-4.md
+
+model_metadata.json
+pythoninferece.py
+testing_plan.md
+ML_ENGINEER_QUESTION.md
+IMPLEMENTATION_VS_GUIDE.md
 
 # Exceptions to above rules.
 !**/ios/**/default.mode1v3
@@ -86,3 +96,5 @@ note-2.md
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
 
+# Pictures
+picture_formula/

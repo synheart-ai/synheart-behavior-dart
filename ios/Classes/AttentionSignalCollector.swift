@@ -96,12 +96,15 @@ class AttentionSignalCollector {
 
         if !isInForeground {
             isInForeground = true
-            appSwitchCount += 1
-
+            
             let backgroundDuration = backgroundStartTime > 0 ? now - backgroundStartTime : 0
             totalBackgroundTime += backgroundDuration
-
-            emitAppSwitch(direction: "foreground", duration: backgroundDuration)
+            
+            // Emit app switch event if we had a background period
+            // Note: App switch count is incremented when going to background, not when returning
+            if backgroundDuration > 0 {
+                emitAppSwitchEvent(backgroundDuration: backgroundDuration)
+            }
         }
 
         startStabilityTimer()
@@ -117,8 +120,11 @@ class AttentionSignalCollector {
             let foregroundDuration = foregroundStartTime > 0 ? now - foregroundStartTime : 0
             totalForegroundTime += foregroundDuration
 
+            // Count app switch when going to background (this is when the switch actually happens)
+            // This ensures app switch is counted even if session is auto-ended while in background
+            appSwitchCount += 1
+
             emitForegroundDuration(duration: foregroundDuration)
-            emitAppSwitch(direction: "background", duration: foregroundDuration)
         }
 
         stabilityTimer?.invalidate()
@@ -131,56 +137,43 @@ class AttentionSignalCollector {
         }
     }
 
-    private func emitAppSwitch(direction: String, duration: Double) {
-        eventHandler?(BehaviorEvent(
+    // Emit app switch event so it can break deep focus blocks
+    private func emitAppSwitchEvent(backgroundDuration: Double) {
+        guard let handler = eventHandler else { return }
+        
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        handler(BehaviorEvent(
             sessionId: "current",
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            type: "appSwitch",
-            payload: [
-                "direction": direction,
-                "previous_duration_ms": duration,
-                "switch_count": appSwitchCount
+            timestamp: formatter.string(from: Date()),
+            eventType: "app_switch",
+            metrics: [
+                "background_duration_ms": Int(backgroundDuration)
             ]
         ))
+    }
+    
+    // Legacy method - kept for compatibility but not used
+    private func emitAppSwitch(direction: String, duration: Double) {
+        // Use emitAppSwitchEvent instead
     }
 
     private func emitForegroundDuration(duration: Double) {
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            type: "foregroundDuration",
-            payload: [
-                "duration_ms": duration,
-                "duration_seconds": duration / 1000.0
-            ]
-        ))
+        // Foreground duration is computed from session data, not emitted as events
     }
 
     private func emitSessionStability() {
-        let now = Date().timeIntervalSince1970 * 1000
-        let totalSessionDuration = now - sessionStartTime
-        let sessionMinutes = totalSessionDuration / 60000.0
-
-        guard sessionMinutes > 0 else { return }
-
-        // Stability index: higher is more stable (fewer switches)
-        let stabilityIndex = max(0.0, min(1.0, 1.0 - (Double(appSwitchCount) / (sessionMinutes * 10.0))))
-
-        // Fragmentation index: based on background/foreground ratio
-        let foregroundRatio = totalSessionDuration > 0 ? totalForegroundTime / totalSessionDuration : 1.0
-        let fragmentationIndex = max(0.0, min(1.0, 1.0 - foregroundRatio))
-
-        eventHandler?(BehaviorEvent(
-            sessionId: "current",
-            timestamp: Int64(now),
-            type: "sessionStability",
-            payload: [
-                "stability_index": stabilityIndex,
-                "fragmentation_index": fragmentationIndex,
-                "app_switches": appSwitchCount,
-                "session_minutes": sessionMinutes,
-                "foreground_ratio": foregroundRatio
-            ]
-        ))
+        // Session stability is computed in session summary, not emitted as events
+    }
+    
+    // Expose app switch count for session tracking
+    func getAppSwitchCount() -> Int {
+        return appSwitchCount
+    }
+    
+    // Reset app switch count for a new session
+    func resetAppSwitchCount() {
+        appSwitchCount = 0
     }
 }
