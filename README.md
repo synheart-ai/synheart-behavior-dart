@@ -11,6 +11,7 @@
 A privacy-preserving mobile SDK that collects digital behavioral signals from smartphones. The SDK transforms low-level digital interaction events into structured numerical representations of behavior across event and session. By modeling interaction timing, intensity, fragmentation, and interruption patterns without collecting content or personal data, the SDK provides stable, interpretable metrics to represent digital behavior.
 
 These behavioral signals power downstream systems such as:
+
 - Focus and distraction inference
 - Digital wellness analytics
 - Cognitive load and fatigue estimation
@@ -32,7 +33,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.0.1
+  synheart_behavior: ^0.1.0
 ```
 
 Then run:
@@ -386,6 +387,7 @@ if (behavior.isInitialized) {
 ### Core Behavioral Metrics
 
 Session-level outputs include:
+
 - `interactionIntensity`: Overall interaction rate and engagement
 - `distractionScore`: Behavioral proxy for distraction (0-1)
 - `focusHint`: Behavioral proxy for focus quality (0-1)
