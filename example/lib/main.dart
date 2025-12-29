@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
 
@@ -242,100 +241,6 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
       print('Session ended successfully. Summary: ${summary.sessionId}');
       final sessionEvents = List<BehaviorEvent>.from(_sessionEvents);
       print('Session events count: ${sessionEvents.length}');
-
-      // Export 561 features as JSON for ML engineer (if motion data available)
-      if (summary.motionData != null && summary.motionData!.isNotEmpty) {
-        try {
-          // Initialize inference to get ordered features
-          final inference = MotionStateInference();
-          await inference.loadModel();
-
-          // Print header to distinguish motion data export
-          print('\n');
-          print(
-              '═══════════════════════════════════════════════════════════════');
-          print('📊 MOTION DATA EXPORT - 561 FEATURES PER WINDOW');
-          print(
-              '═══════════════════════════════════════════════════════════════');
-          print('Total windows: ${summary.motionData!.length}');
-          print('Total duration: ${summary.motionData!.length * 5} seconds');
-          print('Features per window: 561 (ordered as per features.txt)');
-          print(
-              '═══════════════════════════════════════════════════════════════');
-          print('');
-
-          // Print each window as JSON (all 561 features per window)
-          for (int i = 0; i < summary.motionData!.length; i++) {
-            final windowNum = i + 1;
-
-            // Get ordered features for this window (all 561 values)
-            final orderedFeatures = await inference
-                .getOrderedFeatures(summary.motionData![i].features);
-
-            // Verify we have all 561 features
-            if (orderedFeatures.length != 561) {
-              print(
-                  'ERROR: Window $windowNum has ${orderedFeatures.length} features, expected 561!');
-              continue;
-            }
-
-            // Replace NaN and Infinity values with 0.0 before JSON encoding
-            // JSON doesn't support NaN/Infinity, so we need to sanitize the data
-            final sanitizedFeatures = orderedFeatures.map((value) {
-              if (value.isNaN || value.isInfinite) {
-                return 0.0;
-              }
-              return value;
-            }).toList();
-
-            // Count how many were replaced for logging
-            final nanCount = orderedFeatures.where((v) => v.isNaN).length;
-            final infCount = orderedFeatures.where((v) => v.isInfinite).length;
-            if (nanCount > 0 || infCount > 0) {
-              print(
-                  '⚠️ Window $windowNum: Replaced $nanCount NaN and $infCount Infinity values with 0.0');
-            }
-
-            // Create JSON object for this window
-            final windowJson = {
-              'data_point_index': windowNum,
-              'timestamp': summary.motionData![i].timestamp,
-              'features':
-                  sanitizedFeatures, // All 561 features in exact order (NaN/Inf replaced)
-            };
-
-            // Print as JSON string (compact format)
-            try {
-              final jsonString = json.encode(windowJson);
-              print(jsonString);
-
-              // Verify the JSON contains all features (check feature count in JSON)
-              final decoded = json.decode(jsonString) as Map<String, dynamic>;
-              final featuresInJson = decoded['features'] as List;
-              if (featuresInJson.length != 561) {
-                print(
-                    'ERROR: Window $windowNum JSON contains ${featuresInJson.length} features, expected 561!');
-              } else {
-                print('✓ Window $windowNum: Verified 561 features in JSON');
-              }
-            } catch (e) {
-              print('ERROR: Failed to encode Window $windowNum to JSON: $e');
-            }
-          }
-
-          print('');
-          print(
-              '═══════════════════════════════════════════════════════════════');
-          print('✅ END OF MOTION DATA EXPORT');
-          print(
-              '═══════════════════════════════════════════════════════════════');
-          print('\n');
-        } catch (e) {
-          print('Error exporting features: $e');
-        }
-      } else {
-        print('No motion data available to export');
-      }
 
       setState(() {
         _currentSession = null;

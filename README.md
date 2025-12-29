@@ -9,6 +9,7 @@ A privacy-preserving mobile SDK that collects digital behavioral signals from sm
 - **Privacy-First**: No text, content, or personally identifiable information (PII) collected—only timing-based signals
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
+- **Motion State Prediction**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using ML model inference
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android with native implementations
@@ -204,11 +205,12 @@ Each event includes:
 
 ## Permissions
 
-**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking. 
+**Note**: Basic functionality (scroll, tap, swipe) requires **no permissions**. The following permissions are optional and only needed for notification and call tracking.
 
 No content-level information is ever collected or stored. For notifications, the SDK does not record notification text, sender identity, application source, or semantic meaning. For phone calls, the SDK does not record audio, voice data, call content, or call participants.
 
 Instead, the SDK records only event-level metadata, such as:
+
 - the occurrence of a notification or call,
 - the timestamp of the event,
 - and the user’s interaction outcome (e.g., opened, dismissed, ignored).
@@ -263,7 +265,7 @@ final config = BehaviorConfig(
   // Enable/disable signal types
   enableInputSignals: true,        // Scroll, tap, swipe gestures
   enableAttentionSignals: true,    // App switching, idle gaps, session stability
-  enableMotionLite: false,         // Device motion (optional, may impact battery)
+  enableMotionLite: true,          // Device motion + activity recognition (LAYING, MOVING, SITTING, STANDING)
 
   // Session configuration
   sessionIdPrefix: 'MYAPP',        // Custom session ID prefix (default: 'SESS')
@@ -337,6 +339,13 @@ print('App Switches: ${summary.activitySummary.appSwitchCount}');
 // Notification summary
 print('Notifications: ${summary.notificationSummary.notificationCount}');
 print('Ignore Rate: ${summary.notificationSummary.notificationIgnoreRate}');
+
+// Motion state (if enableMotionLite is true)
+if (summary.motionState != null) {
+  print('Motion State: ${summary.motionState!.majorState}');
+  print('Confidence: ${summary.motionState!.confidence}');
+  print('States: ${summary.motionState!.state}');
+}
 ```
 
 ### Current Statistics
@@ -377,7 +386,6 @@ behavior.createBehaviorTextField(
 )
 ```
 
-
 ### Custom Event Sending
 
 You can manually send events to the SDK. Note that only the predefined event types are supported (scroll, tap, swipe, notification, call):
@@ -417,6 +425,7 @@ The SDK does not collect names, contacts, account identifiers, message content, 
 
 ✅ No content capture
 The SDK does not collect:
+
 - notification text, titles, or sender identity
 - call audio, voice data, or call participants
 - application UI content or screen data
@@ -433,10 +442,11 @@ The SDK does not monitor, infer, or aggregate behavior across the entire device 
 
 ✅ Event-level metadata only
 Collected data is limited to:
+
 - event type (e.g., tap, scroll, swipe, notification, call)
 - timestamp
 - non-semantic physical metrics (e.g., duration, velocity)
-No semantic interpretation is performed at the data collection stage.
+  No semantic interpretation is performed at the data collection stage.
 
 **Connectivity & System Access**
 
@@ -446,6 +456,7 @@ The SDK functions fully offline and does not require an active internet connecti
 ✅ Network availability state only (no data transmission)
 The SDK may record a binary system-level indicator of whether network connectivity (e.g., internet available / unavailable) is present at a given time.
 This signal:
+
 - does not include network traffic, destinations, IPs, or content
 - does not trigger any data transmission
 - is used solely as contextual metadata for behavioral interpretation (e.g., offline usage patterns)
@@ -456,8 +467,6 @@ The SDK does not depend on Bluetooth, NFC, or communication with external device
 ✅ No background network communication
 Behavioral computation and aggregation occur locally without initiating network requests.
 Any optional data transmission (e.g., for research or cloud aggregation) is explicitly controlled, consent-gated, and configurable.
-
-
 
 **Processing & Storage**
 
@@ -474,6 +483,7 @@ The SDK does not share raw or derived behavioral data with advertisers, analytic
 
 ✅ GDPR / CCPA aligned
 The SDK adheres to the principles of:
+
 - data minimization
 - purpose limitation
 - user consent

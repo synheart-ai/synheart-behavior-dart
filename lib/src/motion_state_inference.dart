@@ -7,7 +7,7 @@ import 'models/behavior_session.dart';
 /// Service for running ONNX inference on motion data to predict activity states.
 class MotionStateInference {
   OrtSession? _session;
-  List<String> _classLabels = ['MOVING', 'LAYING', 'STANDING', 'SITTING'];
+  List<String> _classLabels = ['LAYING', 'MOVING', 'SITTING', 'STANDING'];
   bool _isLoaded = false;
 
   // Feature order from features.txt (loaded once, cached)
@@ -712,59 +712,6 @@ class MotionStateInference {
   }
 
   /// Export all 561 features as JSON for ML engineer review
-  /// Exports features in the exact order expected by the model (as per features.txt)
-  /// Each data point contains an array of 561 feature values in the exact order from features.txt
-  Future<String> exportFeaturesAsJson(List<MotionDataPoint> motionData) async {
-    if (motionData.isEmpty) {
-      return json.encode({'error': 'No motion data provided'});
-    }
-
-    final List<Map<String, dynamic>> dataPoints = [];
-
-    for (int i = 0; i < motionData.length; i++) {
-      final dataPoint = motionData[i];
-
-      // Convert features map to ordered list (exactly as model expects)
-      final featureList = await _featuresMapToList(dataPoint.features);
-
-      // Create data point with ordered features array
-      final Map<String, dynamic> pointData = {
-        'data_point_index': i + 1,
-        'timestamp': dataPoint.timestamp,
-        'features':
-            featureList, // Array of 561 values in exact order (index 0-560 = features.txt lines 1-561)
-      };
-
-      dataPoints.add(pointData);
-    }
-
-    final exportData = {
-      'metadata': {
-        'total_data_points': motionData.length,
-        'window_size_seconds': 5.0,
-        'features_count': 561,
-        'export_timestamp': DateTime.now().toIso8601String(),
-        'note':
-            'Features array is ordered exactly as per features.txt (array index 0 = features.txt line 1, index 560 = features.txt line 561)',
-      },
-      'data_points': dataPoints,
-    };
-
-    return json.encode(exportData);
-  }
-
-  /// Static helper to export features as JSON (convenience method)
-  static Future<String> exportFeaturesJson(
-      List<MotionDataPoint> motionData) async {
-    final inference = MotionStateInference();
-    await inference.loadModel();
-    return await inference.exportFeaturesAsJson(motionData);
-  }
-
-  /// Get ordered features list for a single data point (public method for logging)
-  Future<List<double>> getOrderedFeatures(Map<String, double> features) async {
-    return await _featuresMapToList(features);
-  }
 
   void dispose() {
     _session?.release();
