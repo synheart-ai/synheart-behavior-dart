@@ -72,7 +72,9 @@ class MotionStateInference {
       }
     } catch (e) {
       print('MotionStateInference: Error loading model: $e');
-      rethrow;
+      // Don't rethrow - allow SDK to continue without motion state inference
+      // This is especially important for test environments where ONNX runtime may not be available
+      _isLoaded = false;
     }
   }
 
