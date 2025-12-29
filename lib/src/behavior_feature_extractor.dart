@@ -37,7 +37,7 @@
 //     List<BehaviorEvent> events,
 //     WindowType windowType,
 //     int windowDurationMs,
-//   ) 
+//   )
 //   {
 //     if (events.isEmpty) {
 //       return BehaviorWindowFeatures.zero(windowType);

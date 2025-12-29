@@ -40,7 +40,7 @@ void main() {
     });
 
     test('fromJson creates stats correctly', () {
-      final json = {    
+      final json = {
         'scroll_velocity': 150.0,
         'scroll_acceleration': 20.0,
         'scroll_jitter': 5.0,
