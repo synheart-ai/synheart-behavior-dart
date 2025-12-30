@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - synheart_behavior (1.0.0):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - synheart_behavior (from `.symlinks/plugins/synheart_behavior/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  synheart_behavior:
+    :path: ".symlinks/plugins/synheart_behavior/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  synheart_behavior: 85e9e683eaea36b30e010d66a322b073264da51f
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2
