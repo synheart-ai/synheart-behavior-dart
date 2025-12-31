@@ -1,0 +1,4 @@
+# Gradle cache files
+android/.gradle/
+example/android/.gradle/
+
