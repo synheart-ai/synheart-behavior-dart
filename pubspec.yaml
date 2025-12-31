@@ -19,7 +19,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  onnxruntime: ^1.4.1
+  flutter_onnxruntime: ^1.5.2
 
 dev_dependencies:
   flutter_test:

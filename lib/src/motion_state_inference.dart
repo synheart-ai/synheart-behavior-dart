@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
-import 'package:onnxruntime/onnxruntime.dart';
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'dart:convert';
 import 'models/behavior_session.dart';
 
 /// Service for running ONNX inference on motion data to predict activity states.
 class MotionStateInference {
+  final OnnxRuntime _onnxRuntime = OnnxRuntime();
   OrtSession? _session;
   List<String> _classLabels = ['LAYING', 'MOVING', 'SITTING', 'STANDING'];
   bool _isLoaded = false;
@@ -29,24 +30,22 @@ class MotionStateInference {
     if (_isLoaded) return;
 
     try {
-      // Load model from assets as bytes
-      // Try package path first (for plugin assets), then fallback to regular path
-      ByteData modelBytes;
-      try {
-        modelBytes = await rootBundle.load(
-          'packages/synheart_behavior/assets/models/linear_svc_model.onnx',
-        );
-      } catch (e) {
-        modelBytes =
-            await rootBundle.load('assets/models/linear_svc_model.onnx');
-      }
-      final modelData = modelBytes.buffer.asUint8List();
-
       // Create session options
       final sessionOptions = OrtSessionOptions();
 
-      // Create session from buffer
-      _session = OrtSession.fromBuffer(modelData, sessionOptions);
+      // Create session from asset using OnnxRuntime
+      // Try package path first (for plugin assets), then fallback to regular path
+      try {
+        _session = await _onnxRuntime.createSessionFromAsset(
+          'packages/synheart_behavior/assets/models/linear_svc_model.onnx',
+          options: sessionOptions,
+        );
+      } catch (e) {
+        _session = await _onnxRuntime.createSessionFromAsset(
+          'assets/models/linear_svc_model.onnx',
+          options: sessionOptions,
+        );
+      }
 
       // Load label mapping
       String labelMappingString;
@@ -388,7 +387,7 @@ class MotionStateInference {
       }
 
       // Create input tensor with shape [1, 561] - exactly as model expects
-      final inputTensor = OrtValueTensor.createTensorWithDataList(
+      final inputTensor = await OrtValue.fromList(
         inputData,
         [1, 561],
       );
@@ -396,34 +395,34 @@ class MotionStateInference {
       // Prepare inputs - use exact input name the model expects
       final inputs = {'float_input': inputTensor};
 
-      // Run inference
-      final outputs = _session!.run(OrtRunOptions(), inputs);
+      // Run inference (options is a named parameter)
+      final runOptions = OrtRunOptions();
+      final outputs = await _session!.run(inputs, options: runOptions);
 
-      // Extract outputs
+      // Extract outputs from the map
       // Output 0: label (String or List<String>)
       // Output 1: probabilities/scores (Float32[1, 4])
-      final labelOutput = outputs[0];
-      final probsOutput = outputs[1];
+      final outputKeys = outputs.keys.toList();
+      final labelOutput = outputs[outputKeys[0]];
+      final probsOutput = outputs[outputKeys[1]];
+
+      // Release input tensor
+      await inputTensor.dispose();
 
       // Get predicted label
       String predictedLabel = '';
       if (labelOutput != null) {
-        final labelValue = labelOutput.value;
-        if (labelValue is String) {
-          predictedLabel = labelValue;
-        } else if (labelValue is List) {
-          if (labelValue.isNotEmpty) {
-            final firstElement = labelValue[0];
-            if (firstElement is String) {
-              predictedLabel = firstElement;
-            } else {
-              // If it's a numeric index, map it to the label
-              final index = firstElement is int
-                  ? firstElement
-                  : (firstElement as num).toInt();
-              if (index >= 0 && index < _classLabels.length) {
-                predictedLabel = _classLabels[index];
-              }
+        final labelData = await labelOutput.asFlattenedList();
+        // Handle label data - could be String or List
+        if (labelData.isNotEmpty) {
+          final firstElement = labelData[0];
+          if (firstElement is String) {
+            predictedLabel = firstElement;
+          } else {
+            // If it's a numeric index, map it to the label
+            final index = (firstElement as num).toInt();
+            if (index >= 0 && index < _classLabels.length) {
+              predictedLabel = _classLabels[index];
             }
           }
         }
@@ -433,16 +432,13 @@ class MotionStateInference {
       // The model outputs probabilities (if probability=True) or decision scores
       List<double> probabilities = [];
       if (probsOutput != null) {
-        final probsValue = probsOutput.value;
-        if (probsValue is List) {
-          // Handle nested list structure [1, 4]
-          if (probsValue.isNotEmpty && probsValue[0] is List) {
-            probabilities = List<double>.from(
-                (probsValue[0] as List).map((e) => e.toDouble()));
-          } else {
-            probabilities =
-                List<double>.from(probsValue.map((e) => e.toDouble()));
-          }
+        final probsData = await probsOutput.asFlattenedList();
+        // Handle nested list structure [1, 4]
+        if (probsData.isNotEmpty && probsData[0] is List) {
+          probabilities = List<double>.from(
+              (probsData[0] as List).map((e) => e.toDouble()));
+        } else {
+          probabilities = List<double>.from(probsData.map((e) => e.toDouble()));
         }
       }
 
@@ -487,10 +483,10 @@ class MotionStateInference {
           print(
               'MotionStateInference: WARNING - No probabilities extracted from model output');
           if (probsOutput != null) {
+            final probsData = await probsOutput.asFlattenedList();
             print(
-                'MotionStateInference: ProbsOutput value type: ${probsOutput.value.runtimeType}');
-            print(
-                'MotionStateInference: ProbsOutput value: ${probsOutput.value}');
+                'MotionStateInference: ProbsOutput value type: ${probsData.runtimeType}');
+            print('MotionStateInference: ProbsOutput value: $probsData');
           } else {
             print('MotionStateInference: ProbsOutput is null');
           }
@@ -717,8 +713,8 @@ class MotionStateInference {
 
   /// Export all 561 features as JSON for ML engineer review
 
-  void dispose() {
-    _session?.release();
+  Future<void> dispose() async {
+    await _session?.close();
     _session = null;
     _isLoaded = false;
   }
