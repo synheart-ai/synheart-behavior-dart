@@ -470,7 +470,7 @@ class SynheartBehavior {
       // _windowAggregator.clear();
 
       // Dispose motion state inference
-      _motionStateInference.dispose();
+      await _motionStateInference.dispose();
 
       _initialized = false;
     } catch (e) {

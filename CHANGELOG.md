@@ -58,3 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Removed documentation file from repository
+
+## [0.1.2] - 2025-12-31
+
+### Fixed
+
+- Fixed null casting error in Android build.gradle.kts by making signing config conditional
+- Updated .gitignore to exclude Gradle cache files (.gradle/ directory)
+
+### Changed
+
+- Replaced `onnxruntime` with `flutter_onnxruntime` in `pubspec.yaml`
+- Build configuration now gracefully handles missing key.properties file for debug builds
