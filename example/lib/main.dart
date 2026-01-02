@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
 
@@ -165,6 +166,13 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
             }
           }
         });
+      });
+
+      // Listen to 5-second window metrics
+      behavior.onWindowMetrics.listen((windowMetrics) {
+        // Print window metrics in the format matching response.json
+        print('📊 5-Second Window Metrics:');
+        print(JsonEncoder.withIndent('  ').convert(windowMetrics));
       });
 
       // Check and request notification permission

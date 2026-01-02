@@ -31,6 +31,8 @@ class SynheartBehavior {
   //     StreamController<BehaviorWindowFeatures>.broadcast();
   // final StreamController<BehaviorWindowFeatures> _longWindowController =
   //     StreamController<BehaviorWindowFeatures>.broadcast();
+  final StreamController<Map<String, dynamic>> _windowMetricsController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final Map<String, BehaviorSession> _activeSessions = {};
 
   // Window features - commented out (not needed for real-time event tracking)
@@ -110,6 +112,13 @@ class SynheartBehavior {
   /// Subscribe to this stream to receive real-time behavioral signals.
   Stream<BehaviorEvent> get onEvent => _eventController.stream;
 
+  /// Stream of 5-second window behavioral metrics emitted by the SDK.
+  ///
+  /// Subscribe to this stream to receive window-based behavioral metrics
+  /// calculated every 5 seconds. The format matches the session summary format.
+  Stream<Map<String, dynamic>> get onWindowMetrics =>
+      _windowMetricsController.stream;
+
   // Window features - commented out (not needed for real-time event tracking)
   // /// Stream of 30-second window features.
   // ///
@@ -178,6 +187,16 @@ class SynheartBehavior {
           // _windowAggregator.addEvent(event);
         } catch (e) {
           // Silently handle parsing errors to avoid console spam
+        }
+        break;
+      case 'onWindowMetrics':
+        final windowMetricsData = call.arguments as Map<dynamic, dynamic>;
+        try {
+          // Convert the entire map structure properly, handling nested maps
+          final convertedData = _convertMap(windowMetricsData);
+          _windowMetricsController.add(convertedData);
+        } catch (e) {
+          print('Error parsing window metrics: $e');
         }
         break;
       default:
@@ -461,6 +480,7 @@ class SynheartBehavior {
 
       // Close event streams
       await _eventController.close();
+      await _windowMetricsController.close();
       // Window features - commented out (not needed for real-time event tracking)
       // await _shortWindowController.close();
       // await _longWindowController.close();

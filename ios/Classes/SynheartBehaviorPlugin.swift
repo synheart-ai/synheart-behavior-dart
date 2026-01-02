@@ -103,6 +103,11 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
         behaviorSDK?.setEventHandler { [weak self] event in
             self?.emitEvent(event: event.toDictionary())
         }
+        
+        // Set up window metrics handler to send to Flutter
+        behaviorSDK?.setWindowMetricsHandler { [weak self] windowMetrics in
+            self?.emitWindowMetrics(windowMetrics: windowMetrics)
+        }
 
         // Attach to root view if available
         if let window = UIApplication.shared.windows.first,
@@ -187,6 +192,11 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
     // Helper method to emit events to Flutter
     private func emitEvent(event: [String: Any]) {
         channel?.invokeMethod("onEvent", arguments: event)
+    }
+    
+    // Helper method to emit window metrics to Flutter
+    private func emitWindowMetrics(windowMetrics: [String: Any]) {
+        channel?.invokeMethod("onWindowMetrics", arguments: windowMetrics)
     }
 
     private func checkNotificationPermission(result: @escaping FlutterResult) {
