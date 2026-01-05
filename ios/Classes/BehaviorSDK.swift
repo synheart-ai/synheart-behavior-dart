@@ -10,7 +10,6 @@ public class BehaviorSDK {
 
     private let config: BehaviorConfig
     private var eventHandler: ((BehaviorEvent) -> Void)?
-    private var windowMetricsHandler: (([String: Any]) -> Void)?
     private var currentSessionId: String?
     private var sessionData: [String: SessionData] = [:]
     private let statsCollector = StatsCollector()
@@ -27,10 +26,6 @@ public class BehaviorSDK {
     private var lastInteractionTime = Date()
     private var lastAppUseTime: Date? // For session spacing calculation
     private var idleTimer: Timer?
-    
-    // 5-second window calculation (separate from session-end calculations)
-    private var windowCalculationTimer: Timer?
-    private var isWindowCalculationActive = false
     
     // Device context tracking
     private var startScreenBrightness: CGFloat = 0.5
@@ -98,173 +93,6 @@ public class BehaviorSDK {
 
         // Start idle detection
         startIdleTimer()
-        
-        // Start 5-second window calculations if handler is set
-        startWindowCalculations()
-    }
-    
-    public func setWindowMetricsHandler(_ handler: @escaping ([String: Any]) -> Void) {
-        self.windowMetricsHandler = handler
-        startWindowCalculations()
-    }
-    
-    /**
-     * Start 5-second window calculations (separate from session-end calculations).
-     * This runs independently and calculates notification_load and task_switch_rate
-     * on rolling 5-second windows.
-     */
-    private func startWindowCalculations() {
-        if windowMetricsHandler == nil || isWindowCalculationActive {
-            return
-        }
-        
-        isWindowCalculationActive = true
-        
-        windowCalculationTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            if !self.isWindowCalculationActive || self.currentSessionId == nil {
-                return
-            }
-            
-            guard let sessionId = self.currentSessionId,
-                  let data = self.sessionData[sessionId] else {
-                return
-            }
-            
-            // Calculate window metrics for the last 5 seconds
-            let now = Date()
-            let windowStartTime = now.addingTimeInterval(-5.0)
-            let windowDurationSeconds = 5.0
-            
-            // Get events in the last 5 seconds
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            
-            let recentEvents = data.events.filter { event in
-                if let eventDate = formatter.date(from: event.timestamp) {
-                    return eventDate >= windowStartTime && eventDate <= now
-                }
-                return false
-            }
-            
-            // Count events for window
-            let notificationCount = recentEvents.filter { $0.eventType == "notification" }.count
-            let callCount = recentEvents.filter { $0.eventType == "call" }.count
-            let appSwitchCount = recentEvents.filter { $0.eventType == "app_switch" }.count
-            let totalEvents = recentEvents.count
-            
-            // Calculate session duration for lambda/mu (use current session duration)
-            let sessionDurationMs = Int64(now.timeIntervalSince1970 * 1000) - data.startTime
-            let sessionDurationSeconds = Double(sessionDurationMs) / 1000.0
-            
-            // Calculate lambda: 1/(session duration/2) if < 60s, else 1/60
-            let lambda = sessionDurationSeconds < 60.0 ? 1.0 / (sessionDurationSeconds / 2.0) : 1.0 / 60.0
-            
-            // Calculate mu: 1/(session duration/2) if < 30s, else 1/30
-            let mu = sessionDurationSeconds < 30.0 ? 1.0 / (sessionDurationSeconds / 2.0) : 1.0 / 30.0
-            
-            // Create temporary SessionData for window calculation
-            let windowStartMs = Int64(windowStartTime.timeIntervalSince1970 * 1000)
-            let windowEndMs = Int64(now.timeIntervalSince1970 * 1000)
-            let windowDurationMs = Int64(windowDurationSeconds * 1000)
-            
-            var windowData = SessionData(
-                sessionId: sessionId,
-                startTime: windowStartMs,
-                sessionSpacing: 0,
-                startScreenBrightness: data.startScreenBrightness,
-                startOrientation: data.startOrientation,
-                startInternetState: data.startInternetState,
-                startDoNotDisturb: data.startDoNotDisturb,
-                startCharging: data.startCharging
-            )
-            windowData.events = recentEvents
-            windowData.eventCount = totalEvents
-            windowData.appSwitchCount = appSwitchCount
-            
-            // Compute all behavioral metrics for this window (with window-specific lambda/mu)
-            let behavioralMetrics = computeBehavioralMetricsForWindow(
-                data: windowData,
-                durationMs: windowDurationMs,
-                notificationCount: notificationCount,
-                callCount: callCount,
-                lambda: lambda,
-                mu: mu
-            )
-            
-            // Compute notification summary for window
-            let notificationEvents = recentEvents.filter { $0.eventType == "notification" }
-            let notificationIgnored = notificationEvents.filter { ($0.metrics["action"] as? String) == "ignored" }.count
-            let notificationIgnoreRate = notificationCount > 0 ? Double(notificationIgnored) / Double(notificationCount) : 0.0
-            let notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents: notificationEvents)
-            
-            // Compute call summary for window
-            let callEvents = recentEvents.filter { $0.eventType == "call" }
-            let callIgnored = callEvents.filter { ($0.metrics["action"] as? String) == "ignored" }.count
-            
-            // Get current system state
-            let currentInternetState = isInternetConnected()
-            let currentDoNotDisturb = isDoNotDisturbEnabled()
-            let currentCharging = isCharging()
-            
-            // Get current device context
-            let currentScreenBrightness = getScreenBrightness()
-            let avgScreenBrightness = (data.startScreenBrightness + Double(currentScreenBrightness)) / 2.0
-            let currentOrientation: String
-            switch UIDevice.current.orientation {
-            case .landscapeLeft, .landscapeRight:
-                currentOrientation = "landscape"
-            default:
-                currentOrientation = "portrait"
-            }
-            
-            // Build window summary matching session summary format
-            let windowSummary: [String: Any] = [
-                "session_id": sessionId,
-                "start_at": formatter.string(from: windowStartTime),
-                "end_at": formatter.string(from: now),
-                "micro_session": false, // Windows are always 5 seconds
-                "OS": UIDevice.current.systemName + " " + UIDevice.current.systemVersion,
-                "app_id": Bundle.main.bundleIdentifier ?? "unknown",
-                "session_spacing": 0, // Not applicable for windows
-                "device_context": [
-                    "avg_screen_brightness": avgScreenBrightness,
-                    "start_orientation": currentOrientation,
-                    "orientation_changes": 0 // Count only within window
-                ],
-                "activity_summary": [
-                    "total_events": totalEvents,
-                    "app_switch_count": appSwitchCount
-                ],
-                "behavioral_metrics": behavioralMetrics,
-                "notification_summary": [
-                    "notification_count": notificationCount,
-                    "notification_ignored": notificationIgnored,
-                    "notification_ignore_rate": notificationIgnoreRate,
-                    "notification_clustering_index": notificationClusteringIndex,
-                    "call_count": callCount,
-                    "call_ignored": callIgnored
-                ],
-                "system_state": [
-                    "internet_state": currentInternetState,
-                    "do_not_disturb": currentDoNotDisturb,
-                    "charging": currentCharging
-                ]
-            ]
-            
-            // Emit window metrics
-            self.windowMetricsHandler?(windowSummary)
-        }
-    }
-    
-    /**
-     * Stop 5-second window calculations.
-     */
-    private func stopWindowCalculations() {
-        isWindowCalculationActive = false
-        windowCalculationTimer?.invalidate()
-        windowCalculationTimer = nil
     }
     
     @objc private func appDidBecomeActive() {
@@ -1266,7 +1094,6 @@ public class BehaviorSDK {
 
     public func dispose() {
         // Stop window calculations
-        stopWindowCalculations()
         idleTimer?.invalidate()
         idleTimer = nil
         NotificationCenter.default.removeObserver(self)

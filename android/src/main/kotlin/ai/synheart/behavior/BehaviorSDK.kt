@@ -26,7 +26,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         LifecycleObserver {
 
     private var eventHandler: ((BehaviorEvent) -> Unit)? = null
-    private var windowMetricsHandler: ((Map<String, Any>) -> Unit)? = null
     private var currentSessionId: String? = null
     private val sessionData = ConcurrentHashMap<String, SessionData>()
     private val statsCollector = StatsCollector()
@@ -64,10 +63,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                     handler.postDelayed(this, 1000) // Check every second
                 }
             }
-
-    // 5-second window calculation (separate from session-end calculations)
-    private var windowCalculationRunnable: Runnable? = null
-    private var isWindowCalculationActive = false
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
@@ -117,215 +112,10 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
         // Start call monitoring
         callCollector.startMonitoring()
-
-        // Start 5-second window calculations if handler is set
-        startWindowCalculations()
-    }
-
-    /**
-     * Start 5-second window calculations (separate from session-end calculations). This runs
-     * independently and calculates notification_load and task_switch_rate on rolling 5-second
-     * windows.
-     */
-    private fun startWindowCalculations() {
-        if (windowMetricsHandler == null || isWindowCalculationActive) {
-            return
-        }
-
-        isWindowCalculationActive = true
-        windowCalculationRunnable =
-                object : Runnable {
-                    override fun run() {
-                        if (!isWindowCalculationActive || currentSessionId == null) {
-                            return
-                        }
-
-                        val sessionId = currentSessionId!!
-                        val data =
-                                sessionData[sessionId]
-                                        ?: run {
-                                            handler.postDelayed(this, 5000) // Continue checking
-                                            return
-                                        }
-
-                        // Calculate window metrics for the last 5 seconds
-                        val now = System.currentTimeMillis()
-                        val windowStartMs = now - 5000L // Last 5 seconds
-                        val windowDurationMs = 5000L
-
-                        // Get events in the last 5 seconds
-                        val recentEvents =
-                                data.events.filter { event ->
-                                    try {
-                                        val eventTimeMs =
-                                                Instant.parse(event.timestamp).toEpochMilli()
-                                        eventTimeMs >= windowStartMs && eventTimeMs <= now
-                                    } catch (e: Exception) {
-                                        false
-                                    }
-                                }
-
-                        // Calculate session duration for lambda/mu (use current session duration)
-                        val sessionDurationMs = now - data.startTime
-                        val sessionDurationSeconds = sessionDurationMs / 1000.0
-
-                        // Calculate lambda: 1/(session duration/2) if < 60s, else 1/60
-                        val lambda =
-                                if (sessionDurationSeconds < 60.0) {
-                                    1.0 / (sessionDurationSeconds / 2.0)
-                                } else {
-                                    1.0 / 60.0
-                                }
-
-                        // Calculate mu: 1/(session duration/2) if < 30s, else 1/30
-                        val mu =
-                                if (sessionDurationSeconds < 30.0) {
-                                    1.0 / (sessionDurationSeconds / 2.0)
-                                } else {
-                                    1.0 / 30.0
-                                }
-
-                        // Count events for window
-                        val notificationCount =
-                                recentEvents.count { it.eventType == "notification" }
-                        val callCount = recentEvents.count { it.eventType == "call" }
-                        val appSwitchCount = recentEvents.count { it.eventType == "app_switch" }
-                        val totalEvents = recentEvents.size
-
-                        // Create temporary SessionData for window calculation
-                        val windowData =
-                                SessionData(
-                                        sessionId = sessionId,
-                                        startTime = windowStartMs,
-                                        endTime = now,
-                                        eventCount = totalEvents,
-                                        appSwitchCount = appSwitchCount,
-                                        startScreenBrightness = data.startScreenBrightness,
-                                        startOrientation = data.startOrientation,
-                                        orientationChangeCount = 0,
-                                        startInternetState = data.startInternetState,
-                                        startDoNotDisturb = data.startDoNotDisturb,
-                                        startCharging = data.startCharging
-                                )
-                        windowData.events.addAll(recentEvents)
-
-                        // Compute all behavioral metrics for this window (with window-specific
-                        // lambda/mu)
-                        val behavioralMetrics =
-                                computeBehavioralMetricsForWindow(
-                                        windowData,
-                                        windowDurationMs,
-                                        notificationCount,
-                                        callCount,
-                                        lambda,
-                                        mu
-                                )
-
-                        // Compute notification summary for window
-                        val notificationEvents =
-                                recentEvents.filter { it.eventType == "notification" }
-                        val notificationIgnored =
-                                notificationEvents.count { it.metrics["action"] == "ignored" }
-                        val notificationIgnoreRate =
-                                if (notificationCount > 0) {
-                                    notificationIgnored.toDouble() / notificationCount
-                                } else 0.0
-                        val notificationClusteringIndex =
-                                computeNotificationClusteringIndex(notificationEvents)
-
-                        // Compute call summary for window
-                        val callEvents = recentEvents.filter { it.eventType == "call" }
-                        val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
-
-                        // Get current system state
-                        val currentInternetState = isInternetConnected()
-                        val currentDoNotDisturb = isDoNotDisturbEnabled()
-                        val currentCharging = isCharging()
-
-                        // Get current device context
-                        val currentScreenBrightness = getScreenBrightness()
-                        val avgScreenBrightness =
-                                (data.startScreenBrightness + currentScreenBrightness) / 2.0
-                        val currentOrientation =
-                                when (context.resources.configuration.orientation) {
-                                    Configuration.ORIENTATION_LANDSCAPE -> "landscape"
-                                    else -> "portrait"
-                                }
-
-                        // Build window summary matching session summary format
-                        val windowSummary =
-                                mapOf(
-                                        "session_id" to sessionId,
-                                        "start_at" to
-                                                Instant.ofEpochMilli(windowStartMs).toString(),
-                                        "end_at" to Instant.ofEpochMilli(now).toString(),
-                                        "micro_session" to false, // Windows are always 5 seconds
-                                        "OS" to "Android ${Build.VERSION.RELEASE}",
-                                        "app_id" to context.packageName,
-                                        "session_spacing" to 0, // Not applicable for windows
-                                        "device_context" to
-                                                mapOf(
-                                                        "avg_screen_brightness" to
-                                                                avgScreenBrightness,
-                                                        "start_orientation" to currentOrientation,
-                                                        "orientation_changes" to
-                                                                0 // Count only within window
-                                                ),
-                                        "activity_summary" to
-                                                mapOf(
-                                                        "total_events" to totalEvents,
-                                                        "app_switch_count" to appSwitchCount
-                                                ),
-                                        "behavioral_metrics" to behavioralMetrics,
-                                        "notification_summary" to
-                                                mapOf(
-                                                        "notification_count" to notificationCount,
-                                                        "notification_ignored" to
-                                                                notificationIgnored,
-                                                        "notification_ignore_rate" to
-                                                                notificationIgnoreRate,
-                                                        "notification_clustering_index" to
-                                                                notificationClusteringIndex,
-                                                        "call_count" to callCount,
-                                                        "call_ignored" to callIgnored
-                                                ),
-                                        "system_state" to
-                                                mapOf(
-                                                        "internet_state" to currentInternetState,
-                                                        "do_not_disturb" to currentDoNotDisturb,
-                                                        "charging" to currentCharging
-                                                )
-                                )
-
-                        // Emit window metrics
-                        windowMetricsHandler?.invoke(windowSummary)
-
-                        // Schedule next calculation in 5 seconds
-                        handler.postDelayed(this, 5000)
-                    }
-                }
-
-        // Start the first calculation after 5 seconds
-        handler.postDelayed(windowCalculationRunnable!!, 5000)
-    }
-
-    /** Stop 5-second window calculations. */
-    private fun stopWindowCalculations() {
-        isWindowCalculationActive = false
-        windowCalculationRunnable?.let { handler.removeCallbacks(it) }
-        windowCalculationRunnable = null
     }
 
     fun setEventHandler(handler: (BehaviorEvent) -> Unit) {
         this.eventHandler = handler
-    }
-
-    /**
-     * Set handler for 5-second window metrics (notification_load and task_switch_rate). This is
-     * separate from session-end calculations and runs every 5 seconds.
-     */
-    fun setWindowMetricsHandler(handler: (Map<String, Any>) -> Unit) {
-        this.windowMetricsHandler = handler
     }
 
     fun startSession(sessionId: String) {
@@ -375,9 +165,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
         // Register orientation change listener
         registerOrientationListener()
-
-        // Start window calculations if handler is set
-        startWindowCalculations()
     }
 
     private fun getScreenBrightness(): Float {
@@ -1539,8 +1326,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     }
 
     fun dispose() {
-        // Stop window calculations
-        stopWindowCalculations()
         handler.removeCallbacks(idleCheckRunnable)
         inputSignalCollector.dispose()
         attentionSignalCollector.dispose()

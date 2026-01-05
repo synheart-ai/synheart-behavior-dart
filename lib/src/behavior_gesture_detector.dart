@@ -280,8 +280,8 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
       }
       // Debug: Log position updates to track what's happening
       if (scrollDelta.abs() > 1.0) {
-        print(
-            '📏 Scroll update: currentPos=$currentPosition, endPos=$_scrollEndPosition, lastPos=$_lastScrollPosition, lastValid=$_lastValidEndPosition, delta=$scrollDelta');
+        // print(
+        //     '📏 Scroll update: currentPos=$currentPosition, endPos=$_scrollEndPosition, lastPos=$_lastScrollPosition, lastValid=$_lastValidEndPosition, delta=$scrollDelta');
       }
 
       // Calculate instantaneous velocity from scroll deltas

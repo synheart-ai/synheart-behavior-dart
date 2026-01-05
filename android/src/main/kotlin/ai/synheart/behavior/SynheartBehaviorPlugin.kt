@@ -109,9 +109,6 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         behaviorSDK = BehaviorSDK(context!!, behaviorConfig)
         behaviorSDK?.initialize()
         behaviorSDK?.setEventHandler { event -> emitEvent(event.toMap()) }
-
-        // Set up window metrics handler to send to Flutter
-        behaviorSDK?.setWindowMetricsHandler { windowMetrics -> emitWindowMetrics(windowMetrics) }
     }
 
     private fun startSession(sessionId: String) {
@@ -212,18 +209,6 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             android.util.Log.e(
                     "SynheartBehaviorPlugin",
                     "ERROR sending event to Flutter: ${e.message}",
-                    e
-            )
-        }
-    }
-
-    private fun emitWindowMetrics(windowMetrics: Map<String, Any>) {
-        try {
-            channel.invokeMethod("onWindowMetrics", windowMetrics)
-        } catch (e: Exception) {
-            android.util.Log.e(
-                    "SynheartBehaviorPlugin",
-                    "ERROR sending window metrics to Flutter: ${e.message}",
                     e
             )
         }
