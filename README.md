@@ -34,7 +34,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.1.2
+  synheart_behavior: ^0.1.3
 ```
 
 Then run:
