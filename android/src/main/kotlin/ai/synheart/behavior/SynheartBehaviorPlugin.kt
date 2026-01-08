@@ -88,6 +88,24 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 sendEvent(eventData)
                 result.success(null)
             }
+            "calculateMetricsForTimeRange" -> {
+                @Suppress("UNCHECKED_CAST")
+                val args = (call.arguments as? Map<String, Any>) ?: emptyMap()
+                val startTimestampMs = args["startTimestampMs"] as? Long ?: 0L
+                val endTimestampMs = args["endTimestampMs"] as? Long ?: 0L
+                val sessionId = args["sessionId"] as? String
+                try {
+                    val metrics =
+                            calculateMetricsForTimeRange(
+                                    startTimestampMs = startTimestampMs,
+                                    endTimestampMs = endTimestampMs,
+                                    sessionId = sessionId
+                            )
+                    result.success(metrics)
+                } catch (e: Exception) {
+                    result.error("CALCULATION_ERROR", e.message, null)
+                }
+            }
             else -> {
                 result.notImplemented()
             }
@@ -295,6 +313,19 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     e
             )
         }
+    }
+
+    private fun calculateMetricsForTimeRange(
+            startTimestampMs: Long,
+            endTimestampMs: Long,
+            sessionId: String?
+    ): Map<String, Any?> {
+        val behaviorSDK = this.behaviorSDK ?: throw Exception("SDK not initialized")
+        return behaviorSDK.calculateMetricsForTimeRange(
+                startTimestampMs = startTimestampMs,
+                endTimestampMs = endTimestampMs,
+                sessionId = sessionId
+        )
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {

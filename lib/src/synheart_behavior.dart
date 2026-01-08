@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'models/behavior_config.dart';
 import 'models/behavior_event.dart';
 import 'models/behavior_session.dart'
-    show BehaviorSession, BehaviorSessionSummary;
+    show BehaviorSession, BehaviorSessionSummary, MotionDataPoint;
 import 'models/behavior_stats.dart';
 // Window features - commented out (not needed for real-time event tracking)
 // import 'models/behavior_window_features.dart';
@@ -504,6 +504,95 @@ class SynheartBehavior {
       await _channel.invokeMethod('sendEvent', eventToSend.toJson());
     } catch (e) {
       throw Exception('Failed to send event to native SDK: $e');
+    }
+  }
+
+  /// Calculate metrics for a specific time range within a session.
+  ///
+  /// This method retrieves events and motion data for the specified time range
+  /// and calculates behavioral metrics dynamically using lambda/mu parameters.
+  ///
+  /// [startTimestampSeconds] - Start timestamp in seconds (Unix epoch)
+  /// [endTimestampSeconds] - End timestamp in seconds (Unix epoch)
+  /// [sessionId] - Optional session ID. If not provided, uses the current active session.
+  ///
+  /// Returns a map containing calculated metrics including:
+  /// - behavioral_metrics: Interaction intensity, task switch rate, etc.
+  /// - device_context: Screen brightness, orientation changes
+  /// - system_state: Internet, DND, charging status
+  /// - motion_state: ML-inferred motion state (if motion data available)
+  /// - motion_data: Raw motion data points with ML features
+  /// - activity_summary: Event counts and app switches
+  /// - notification_summary: Notification metrics
+  /// - typing_session_summary: Typing metrics (if available)
+  Future<Map<String, dynamic>> calculateMetricsForTimeRange({
+    required int startTimestampSeconds,
+    required int endTimestampSeconds,
+    String? sessionId,
+  }) async {
+    if (!_initialized) {
+      throw Exception(
+        'SDK not initialized. Call SynheartBehavior.initialize() first.',
+      );
+    }
+
+    try {
+      final result = await _channel.invokeMethod(
+        'calculateMetricsForTimeRange',
+        {
+          'startTimestampMs': startTimestampSeconds * 1000,
+          'endTimestampMs': endTimestampSeconds * 1000,
+          'sessionId': sessionId ?? _currentSessionId,
+        },
+      );
+      var metrics = Map<String, dynamic>.from(result as Map);
+
+      // Run motion state inference if motion data is available
+      if (metrics['motion_data'] != null &&
+          metrics['motion_data'] is List &&
+          (metrics['motion_data'] as List).isNotEmpty) {
+        if (!_motionStateInference.isLoaded) {
+          try {
+            await _motionStateInference.loadModel();
+          } catch (e) {
+            print('Warning: Failed to load motion state model: $e');
+            // Continue without motion state if model loading fails
+          }
+        }
+
+        if (_motionStateInference.isLoaded) {
+          try {
+            // Convert motion data from map format to MotionDataPoint list
+            final motionDataList = (metrics['motion_data'] as List).map((item) {
+              final map = Map<String, dynamic>.from(item as Map);
+              final featuresMap =
+                  Map<String, dynamic>.from(map['features'] as Map);
+              final features = featuresMap.map(
+                  (key, value) => MapEntry(key, (value as num).toDouble()));
+              return MotionDataPoint(
+                timestamp: map['timestamp'] as String,
+                features: features,
+              );
+            }).toList();
+
+            final motionState = await _motionStateInference.inferMotionState(
+              motionDataList,
+            );
+
+            // Update metrics with computed motion state
+            metrics['motion_state'] = motionState.toJson();
+          } catch (e, stackTrace) {
+            print(
+                'ERROR: Failed to run motion state inference for on-demand: $e');
+            print('Stack trace: $stackTrace');
+            // Continue without motion state if inference fails
+          }
+        }
+      }
+
+      return metrics;
+    } catch (e) {
+      throw Exception('Failed to calculate metrics for time range: $e');
     }
   }
 

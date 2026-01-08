@@ -82,6 +82,15 @@ class MotionSignalCollector {
         }
     }
     
+    func getCurrentMotionData() -> [MotionDataPoint] {
+        // Flush current window to ensure we have the latest data
+        flushCurrentWindow()
+        // Return current motion data without stopping collection
+        return sampleQueue.sync {
+            return motionDataPoints
+        }
+    }
+    
     private func startCollecting() {
         if isCollecting || !config.enableMotionLite { return }
         

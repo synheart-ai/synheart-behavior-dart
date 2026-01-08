@@ -114,6 +114,14 @@ public class BehaviorSDK {
     }
 
     public func startSession(sessionId: String) {
+        // Clear previous session data when starting a new session
+        // This ensures data persists until the next session starts, allowing
+        // calculateMetricsForTimeRange to access it for ended sessions
+        if let previousSessionId = currentSessionId, previousSessionId != sessionId {
+            sessionData.removeValue(forKey: previousSessionId)
+            sessionMotionData.removeValue(forKey: previousSessionId)
+        }
+        
         print("BehaviorSDK.startSession: Called with sessionId: \(sessionId)")
         currentSessionId = sessionId
         let now = Date()
@@ -376,9 +384,13 @@ public class BehaviorSDK {
                 ]
             }
             summary["motion_data"] = motionDataJson
+            
+            // Store motion data for on-demand queries (will be cleared when next session starts)
+            sessionMotionData[sessionId] = motionData
         }
         
-        sessionData.removeValue(forKey: sessionId)
+        // Don't remove sessionData here - it will be cleared when the next session starts
+        // This allows calculateMetricsForTimeRange to access data for ended sessions
         NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         return summary
     }
@@ -411,6 +423,208 @@ public class BehaviorSDK {
         
         // Clustering index: 1 - normalized CV (higher = more clustered)
         return max(0.0, min(1.0, 1.0 - (cv / 10.0)))
+    }
+    
+    /**
+     * Compute notification_load on 5-second windows and average the results.
+     * Each window calculates: notification_load = 1 - exp(-notification_rate / λ)
+     * where notification_rate = notification_count_in_window / window_duration_seconds
+     */
+    private func computeNotificationLoadOnWindows(
+        events: [BehaviorEvent],
+        sessionStartTime: Int64,
+        sessionDurationMs: Int64,
+        lambda: Double
+    ) -> Double {
+        let windowSizeMs: Int64 = 5000 // 5 seconds
+        let numWindows = Int(sessionDurationMs / windowSizeMs)
+        
+        if numWindows == 0 {
+            return 0.0
+        }
+        
+        var windowLoads: [Double] = []
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        // Process each 5-second window
+        for windowIndex in 0..<numWindows {
+            let windowStartMs = sessionStartTime + Int64(windowIndex) * windowSizeMs
+            let windowEndMs = windowStartMs + windowSizeMs
+            
+            // Count notifications in this window
+            var notificationCountInWindow = 0
+            for event in events {
+                if event.eventType == "notification" {
+                    if let eventDate = formatter.date(from: event.timestamp) {
+                        let eventTimeMs = Int64(eventDate.timeIntervalSince1970 * 1000)
+                        if eventTimeMs >= windowStartMs && eventTimeMs < windowEndMs {
+                            notificationCountInWindow += 1
+                        }
+                    }
+                }
+            }
+            
+            // Calculate notification rate for this window (notifications per second)
+            let windowDurationSeconds = Double(windowSizeMs) / 1000.0
+            let notificationRate = windowDurationSeconds > 0 ? 
+                Double(notificationCountInWindow) / windowDurationSeconds : 0.0
+            
+            // Calculate notification_load for this window
+            let windowLoad = notificationRate > 0 ? 
+                1.0 - exp(-notificationRate / lambda) : 0.0
+            
+            windowLoads.append(windowLoad)
+        }
+        
+        // Average all window loads
+        return windowLoads.isEmpty ? 0.0 : windowLoads.reduce(0, +) / Double(windowLoads.count)
+    }
+    
+    /**
+     * Compute task_switch_rate on 5-second windows and average the results.
+     * Each window calculates: task_switch_rate = 1 - exp(-task_switch_rate_raw / μ)
+     * where task_switch_rate_raw = app_switch_count_in_window / window_duration_seconds
+     */
+    private func computeTaskSwitchRateOnWindows(
+        events: [BehaviorEvent],
+        sessionStartTime: Int64,
+        sessionDurationMs: Int64,
+        totalAppSwitchCount: Int,
+        mu: Double
+    ) -> Double {
+        let windowSizeMs: Int64 = 5000 // 5 seconds
+        let numWindows = Int(sessionDurationMs / windowSizeMs)
+        
+        if numWindows == 0 {
+            return 0.0
+        }
+        
+        var windowRates: [Double] = []
+        let windowDurationSeconds = Double(windowSizeMs) / 1000.0
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        
+        // Process each 5-second window
+        for windowIndex in 0..<numWindows {
+            let windowStartMs = sessionStartTime + Int64(windowIndex) * windowSizeMs
+            let windowEndMs = windowStartMs + windowSizeMs
+            
+            // Count app_switch events in this window
+            var appSwitchCountInWindow = 0
+            for event in events {
+                if event.eventType == "app_switch" {
+                    if let eventDate = formatter.date(from: event.timestamp) {
+                        let eventTimeMs = Int64(eventDate.timeIntervalSince1970 * 1000)
+                        if eventTimeMs >= windowStartMs && eventTimeMs < windowEndMs {
+                            appSwitchCountInWindow += 1
+                        }
+                    }
+                }
+            }
+            
+            // Calculate task switch rate for this window (app switches per second)
+            let taskSwitchRateRaw = windowDurationSeconds > 0 ? 
+                Double(appSwitchCountInWindow) / windowDurationSeconds : 0.0
+            
+            // Calculate task_switch_rate for this window
+            let windowRate = taskSwitchRateRaw > 0 ? 
+                1.0 - exp(-taskSwitchRateRaw / mu) : 0.0
+            
+            windowRates.append(windowRate)
+        }
+        
+        // Average all window rates
+        return windowRates.isEmpty ? 0.0 : windowRates.reduce(0, +) / Double(windowRates.count)
+    }
+    
+    /**
+     * Compute behavioral metrics for a window with custom lambda and mu values.
+     * This is used for 5-second window calculations.
+     */
+    private func computeBehavioralMetricsForWindow(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int, lambda: Double, mu: Double) -> [String: Any] {
+        let durationSeconds = Double(durationMs) / 1000.0
+        
+        // Step 1: Compute inter-event times for burstiness (Barabási's burstiness index)
+        let burstiness = computeBurstiness(events: data.events)
+        
+        // Step 2: Compute notification_load = 1 - exp(-notification_rate / λ)
+        // Use window-specific lambda
+        let notificationRate = durationSeconds > 0 ? Double(notificationCount) / durationSeconds : 0.0
+        let notificationLoad = notificationRate > 0 ? 1.0 - exp(-notificationRate / lambda) : 0.0
+        
+        // Step 3: Compute task_switch_rate = 1 - exp(-task_switch_rate_raw / μ)
+        // Use window-specific mu
+        let taskSwitchRateRaw = durationSeconds > 0 ? Double(data.appSwitchCount) / durationSeconds : 0.0
+        let taskSwitchRate = taskSwitchRateRaw > 0 ? 1.0 - exp(-taskSwitchRateRaw / mu) : 0.0
+        
+        // Step 4: Compute task_switch_cost
+        let taskSwitchCost = data.appSwitchCount > 0 ? max(0, min(10000, Int(durationMs) / data.appSwitchCount)) : 0
+        
+        // Step 5: Compute idle_ratio
+        let idleRatio = computeIdleRatio(events: data.events, durationMs: durationMs)
+        
+        // Step 6: Compute active_interaction_time
+        let totalIdleTimeMs = Int64(idleRatio * Double(durationMs))
+        let activeInteractionTimeMs = durationMs - totalIdleTimeMs - Int64(taskSwitchCost)
+        let activeTimeRatio = durationMs > 0 ? max(0.0, min(1.0, Double(activeInteractionTimeMs) / Double(durationMs))) : 0.0
+        
+        // Step 7: Compute fragmented_idle_ratio
+        let fragmentedIdleRatio = computeFragmentedIdleRatio(events: data.events, durationMs: durationMs)
+        
+        // Step 8: Compute scroll_jitter_rate
+        let scrollJitterRate = computeScrollJitterRate(events: data.events)
+        
+        // Step 9: Compute distraction_score = weighted combination
+        let w1 = 0.35
+        let w2 = 0.30
+        let w3 = 0.20
+        let w4 = 0.15
+        let behavioralDistractionScore = max(0.0, min(1.0,
+            w1 * taskSwitchRate +
+            w2 * notificationLoad +
+            w3 * fragmentedIdleRatio +
+            w4 * scrollJitterRate))
+        
+        // Step 10: Compute focus_hint = 1 - distraction_score
+        let focusHint = 1.0 - behavioralDistractionScore
+        
+        // Step 11: Compute interaction_intensity
+        let interruptionCount = notificationCount + callCount + data.appSwitchCount
+        let typingEvents = data.events.filter { $0.eventType == "typing" }
+        let typingEventCount = typingEvents.count
+        
+        let totalTypingDurationSeconds = typingEvents.isEmpty ? 0.0 :
+            Double(typingEvents.compactMap { event -> Int? in
+                if let duration = event.metrics["duration"] as? NSNumber {
+                    return duration.intValue
+                }
+                return nil
+            }.reduce(0, +))
+        
+        let totalEventsExceptInterruptionsAndTyping = data.eventCount - interruptionCount - typingEventCount
+        
+        let typingContribution = totalTypingDurationSeconds / 10.0
+        let interactionIntensity = durationSeconds > 0 ?
+            max(0.0, (Double(totalEventsExceptInterruptionsAndTyping) + typingContribution) / durationSeconds) : 0.0
+        
+        // Step 12: Compute deep_focus_block (for 5-second windows, this will typically be empty)
+        let deepFocusBlocks = computeDeepFocusBlocks(events: data.events, durationMs: durationMs, sessionStartTime: data.startTime, sessionEndTime: data.startTime + durationMs, notificationCount: notificationCount, callCount: callCount, appSwitchCount: data.appSwitchCount)
+        
+        return [
+            "interaction_intensity": interactionIntensity,
+            "task_switch_rate": taskSwitchRate,
+            "task_switch_cost": taskSwitchCost,
+            "idle_time_ratio": idleRatio,
+            "active_time_ratio": activeTimeRatio,
+            "notification_load": notificationLoad,
+            "burstiness": burstiness,
+            "behavioral_distraction_score": behavioralDistractionScore,
+            "focus_hint": focusHint,
+            "fragmented_idle_ratio": fragmentedIdleRatio,
+            "scroll_jitter_rate": scrollJitterRate,
+            "deep_focus_blocks": deepFocusBlocks
+        ]
     }
     
     private func computeBehavioralMetrics(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> [String: Any] {
@@ -875,6 +1089,172 @@ public class BehaviorSDK {
         return statsCollector.getCurrentStats()
     }
 
+    public func calculateMetricsForTimeRange(
+        startTimestampMs: Int64,
+        endTimestampMs: Int64,
+        sessionId: String?
+    ) throws -> [String: Any] {
+        // Determine which session to use
+        let sessionIdToUse = sessionId ?? currentSessionId
+        guard let sessionIdToUse = sessionIdToUse else {
+            throw NSError(domain: "BehaviorSDK", code: 500, userInfo: [NSLocalizedDescriptionKey: "No active session and no sessionId provided"])
+        }
+        
+        // Get session data (may be nil if session has ended)
+        let sessionDataEntry = sessionData[sessionIdToUse]
+        
+        // Validate time range is within session duration (with 1 second tolerance)
+        if let data = sessionDataEntry {
+            let sessionStartMs = Int64(data.startTime)
+            let sessionEndMs = Int64(data.endTime ?? Date().timeIntervalSince1970 * 1000)
+            let toleranceMs: Int64 = 1000 // 1 second tolerance
+            
+            if startTimestampMs < (sessionStartMs - toleranceMs) || 
+               endTimestampMs > (sessionEndMs + toleranceMs) {
+                throw NSError(
+                    domain: "BehaviorSDK",
+                    code: 400,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Time range [\(startTimestampMs), \(endTimestampMs)] is out of session bounds [\(sessionStartMs), \(sessionEndMs)]. Session duration: \(sessionEndMs - sessionStartMs)ms. Allowed tolerance: \(toleranceMs)ms"
+                    ]
+                )
+            }
+        }
+        
+        // Filter events by time range
+        let filteredEvents: [BehaviorEvent]
+        if let data = sessionDataEntry {
+            // Session is still active - get events from session data
+            filteredEvents = data.events.filter { event in
+                do {
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    guard let eventDate = formatter.date(from: event.timestamp) else { return false }
+                    let eventTimeMs = Int64(eventDate.timeIntervalSince1970 * 1000)
+                    return eventTimeMs >= startTimestampMs && eventTimeMs <= endTimestampMs
+                } catch {
+                    return false // Skip invalid timestamps
+                }
+            }
+        } else {
+            // Session has ended - events should be retrieved from EventDatabase
+            // For now, return empty list (EventDatabase integration can be added later)
+            filteredEvents = []
+        }
+        
+        // Calculate duration
+        let duration = Int64(endTimestampMs - startTimestampMs)
+        let durationSeconds = Double(duration) / 1000.0
+        
+        // Create a temporary SessionData for calculations
+        var tempData = SessionData(
+            sessionId: sessionIdToUse,
+            startTime: Double(startTimestampMs),
+            endTime: Double(endTimestampMs),
+            eventCount: filteredEvents.count,
+            appSwitchCount: filteredEvents.filter { $0.eventType == "app_switch" }.count,
+            events: filteredEvents
+        )
+        
+        // Compute notification summary
+        let notificationEvents = filteredEvents.filter { $0.eventType == "notification" }
+        let notificationCount = notificationEvents.count
+        let notificationIgnored = notificationEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
+        }.count
+        let notificationIgnoreRate = notificationCount > 0 ?
+            Double(notificationIgnored) / Double(notificationCount) : 0.0
+        let notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
+        
+        // Compute call summary
+        let callEvents = filteredEvents.filter { $0.eventType == "call" }
+        let callCount = callEvents.count
+        let callIgnored = callEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
+        }.count
+        
+        // Compute behavioral metrics
+        let behavioralMetrics = computeBehavioralMetrics(
+            data: tempData,
+            durationMs: duration,
+            notificationCount: notificationCount,
+            callCount: callCount
+        )
+        
+        // Compute typing session summary
+        let typingSessionSummary = computeTypingSessionSummary(data: tempData, durationMs: duration)
+        
+        // Get motion data for the time range
+        let allMotionData: [MotionSignalCollector.MotionDataPoint]
+        if let _ = sessionDataEntry {
+            // Session is still active - get current motion data from collector
+            let currentMotionData = motionSignalCollector.getCurrentMotionData()
+            allMotionData = currentMotionData.filter { dataPoint in
+                do {
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    guard let dataPointDate = formatter.date(from: dataPoint.timestamp) else { return false }
+                    let dataPointTimeMs = Int64(dataPointDate.timeIntervalSince1970 * 1000)
+                    return dataPointTimeMs >= startTimestampMs && dataPointTimeMs <= endTimestampMs
+                } catch {
+                    return false // Skip invalid timestamps
+                }
+            }
+        } else {
+            // Session has ended - motion data should be retrieved from stored data
+            // For now, return empty list (motion data persistence can be added later)
+            allMotionData = []
+        }
+        
+        // Convert motion data to map format
+        let motionDataList = allMotionData.map { dataPoint in
+            [
+                "timestamp": dataPoint.timestamp,
+                "features": dataPoint.features
+            ] as [String: Any]
+        }
+        
+        // Get current device context and system state
+        let currentScreenBrightness = getScreenBrightness()
+        let currentOrientation = UIDevice.current.orientation
+        let orientationStr: String
+        switch currentOrientation {
+        case .landscapeLeft, .landscapeRight:
+            orientationStr = "landscape"
+        default:
+            orientationStr = "portrait"
+        }
+        
+        // Build and return metrics map
+        return [
+            "behavioral_metrics": behavioralMetrics,
+            "device_context": [
+                "avg_screen_brightness": currentScreenBrightness,
+                "start_orientation": orientationStr,
+                "orientation_changes": sessionDataEntry?.orientationChangeCount ?? 0
+            ] as [String: Any],
+            "system_state": [
+                "internet_state": isInternetConnected(),
+                "do_not_disturb": isDoNotDisturbEnabled(),
+                "charging": isCharging()
+            ] as [String: Any],
+            "activity_summary": [
+                "total_events": filteredEvents.count,
+                "app_switch_count": tempData.appSwitchCount
+            ] as [String: Any],
+            "notification_summary": [
+                "notification_count": notificationCount,
+                "notification_ignored": notificationIgnored,
+                "notification_ignore_rate": notificationIgnoreRate,
+                "notification_clustering_index": notificationClusteringIndex,
+                "call_count": callCount,
+                "call_ignored": callIgnored
+            ] as [String: Any],
+            "typing_session_summary": typingSessionSummary,
+            "motion_data": motionDataList
+        ] as [String: Any]
+    }
+
     public func updateConfig(_ newConfig: BehaviorConfig) {
         inputSignalCollector.updateConfig(newConfig)
         attentionSignalCollector.updateConfig(newConfig)
@@ -891,6 +1271,7 @@ public class BehaviorSDK {
     }
 
     public func dispose() {
+        // Stop window calculations
         idleTimer?.invalidate()
         idleTimer = nil
         NotificationCenter.default.removeObserver(self)
