@@ -114,6 +114,14 @@ public class BehaviorSDK {
     }
 
     public func startSession(sessionId: String) {
+        // Clear previous session data when starting a new session
+        // This ensures data persists until the next session starts, allowing
+        // calculateMetricsForTimeRange to access it for ended sessions
+        if let previousSessionId = currentSessionId, previousSessionId != sessionId {
+            sessionData.removeValue(forKey: previousSessionId)
+            sessionMotionData.removeValue(forKey: previousSessionId)
+        }
+        
         print("BehaviorSDK.startSession: Called with sessionId: \(sessionId)")
         currentSessionId = sessionId
         let now = Date()
@@ -376,9 +384,13 @@ public class BehaviorSDK {
                 ]
             }
             summary["motion_data"] = motionDataJson
+            
+            // Store motion data for on-demand queries (will be cleared when next session starts)
+            sessionMotionData[sessionId] = motionData
         }
         
-        sessionData.removeValue(forKey: sessionId)
+        // Don't remove sessionData here - it will be cleared when the next session starts
+        // This allows calculateMetricsForTimeRange to access data for ended sessions
         NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         return summary
     }
@@ -1075,6 +1087,172 @@ public class BehaviorSDK {
 
     public func getCurrentStats() -> BehaviorStats {
         return statsCollector.getCurrentStats()
+    }
+
+    public func calculateMetricsForTimeRange(
+        startTimestampMs: Int64,
+        endTimestampMs: Int64,
+        sessionId: String?
+    ) throws -> [String: Any] {
+        // Determine which session to use
+        let sessionIdToUse = sessionId ?? currentSessionId
+        guard let sessionIdToUse = sessionIdToUse else {
+            throw NSError(domain: "BehaviorSDK", code: 500, userInfo: [NSLocalizedDescriptionKey: "No active session and no sessionId provided"])
+        }
+        
+        // Get session data (may be nil if session has ended)
+        let sessionDataEntry = sessionData[sessionIdToUse]
+        
+        // Validate time range is within session duration (with 1 second tolerance)
+        if let data = sessionDataEntry {
+            let sessionStartMs = Int64(data.startTime)
+            let sessionEndMs = Int64(data.endTime ?? Date().timeIntervalSince1970 * 1000)
+            let toleranceMs: Int64 = 1000 // 1 second tolerance
+            
+            if startTimestampMs < (sessionStartMs - toleranceMs) || 
+               endTimestampMs > (sessionEndMs + toleranceMs) {
+                throw NSError(
+                    domain: "BehaviorSDK",
+                    code: 400,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Time range [\(startTimestampMs), \(endTimestampMs)] is out of session bounds [\(sessionStartMs), \(sessionEndMs)]. Session duration: \(sessionEndMs - sessionStartMs)ms. Allowed tolerance: \(toleranceMs)ms"
+                    ]
+                )
+            }
+        }
+        
+        // Filter events by time range
+        let filteredEvents: [BehaviorEvent]
+        if let data = sessionDataEntry {
+            // Session is still active - get events from session data
+            filteredEvents = data.events.filter { event in
+                do {
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    guard let eventDate = formatter.date(from: event.timestamp) else { return false }
+                    let eventTimeMs = Int64(eventDate.timeIntervalSince1970 * 1000)
+                    return eventTimeMs >= startTimestampMs && eventTimeMs <= endTimestampMs
+                } catch {
+                    return false // Skip invalid timestamps
+                }
+            }
+        } else {
+            // Session has ended - events should be retrieved from EventDatabase
+            // For now, return empty list (EventDatabase integration can be added later)
+            filteredEvents = []
+        }
+        
+        // Calculate duration
+        let duration = Int64(endTimestampMs - startTimestampMs)
+        let durationSeconds = Double(duration) / 1000.0
+        
+        // Create a temporary SessionData for calculations
+        var tempData = SessionData(
+            sessionId: sessionIdToUse,
+            startTime: Double(startTimestampMs),
+            endTime: Double(endTimestampMs),
+            eventCount: filteredEvents.count,
+            appSwitchCount: filteredEvents.filter { $0.eventType == "app_switch" }.count,
+            events: filteredEvents
+        )
+        
+        // Compute notification summary
+        let notificationEvents = filteredEvents.filter { $0.eventType == "notification" }
+        let notificationCount = notificationEvents.count
+        let notificationIgnored = notificationEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
+        }.count
+        let notificationIgnoreRate = notificationCount > 0 ?
+            Double(notificationIgnored) / Double(notificationCount) : 0.0
+        let notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
+        
+        // Compute call summary
+        let callEvents = filteredEvents.filter { $0.eventType == "call" }
+        let callCount = callEvents.count
+        let callIgnored = callEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
+        }.count
+        
+        // Compute behavioral metrics
+        let behavioralMetrics = computeBehavioralMetrics(
+            data: tempData,
+            durationMs: duration,
+            notificationCount: notificationCount,
+            callCount: callCount
+        )
+        
+        // Compute typing session summary
+        let typingSessionSummary = computeTypingSessionSummary(data: tempData, durationMs: duration)
+        
+        // Get motion data for the time range
+        let allMotionData: [MotionSignalCollector.MotionDataPoint]
+        if let _ = sessionDataEntry {
+            // Session is still active - get current motion data from collector
+            let currentMotionData = motionSignalCollector.getCurrentMotionData()
+            allMotionData = currentMotionData.filter { dataPoint in
+                do {
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    guard let dataPointDate = formatter.date(from: dataPoint.timestamp) else { return false }
+                    let dataPointTimeMs = Int64(dataPointDate.timeIntervalSince1970 * 1000)
+                    return dataPointTimeMs >= startTimestampMs && dataPointTimeMs <= endTimestampMs
+                } catch {
+                    return false // Skip invalid timestamps
+                }
+            }
+        } else {
+            // Session has ended - motion data should be retrieved from stored data
+            // For now, return empty list (motion data persistence can be added later)
+            allMotionData = []
+        }
+        
+        // Convert motion data to map format
+        let motionDataList = allMotionData.map { dataPoint in
+            [
+                "timestamp": dataPoint.timestamp,
+                "features": dataPoint.features
+            ] as [String: Any]
+        }
+        
+        // Get current device context and system state
+        let currentScreenBrightness = getScreenBrightness()
+        let currentOrientation = UIDevice.current.orientation
+        let orientationStr: String
+        switch currentOrientation {
+        case .landscapeLeft, .landscapeRight:
+            orientationStr = "landscape"
+        default:
+            orientationStr = "portrait"
+        }
+        
+        // Build and return metrics map
+        return [
+            "behavioral_metrics": behavioralMetrics,
+            "device_context": [
+                "avg_screen_brightness": currentScreenBrightness,
+                "start_orientation": orientationStr,
+                "orientation_changes": sessionDataEntry?.orientationChangeCount ?? 0
+            ] as [String: Any],
+            "system_state": [
+                "internet_state": isInternetConnected(),
+                "do_not_disturb": isDoNotDisturbEnabled(),
+                "charging": isCharging()
+            ] as [String: Any],
+            "activity_summary": [
+                "total_events": filteredEvents.count,
+                "app_switch_count": tempData.appSwitchCount
+            ] as [String: Any],
+            "notification_summary": [
+                "notification_count": notificationCount,
+                "notification_ignored": notificationIgnored,
+                "notification_ignore_rate": notificationIgnoreRate,
+                "notification_clustering_index": notificationClusteringIndex,
+                "call_count": callCount,
+                "call_ignored": callIgnored
+            ] as [String: Any],
+            "typing_session_summary": typingSessionSummary,
+            "motion_data": motionDataList
+        ] as [String: Any]
     }
 
     public func updateConfig(_ newConfig: BehaviorConfig) {

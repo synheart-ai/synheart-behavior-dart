@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
 
@@ -85,7 +84,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
 
     // Start timer to auto-end session after 1 minute
     _backgroundTimer = Timer(
-      Duration(minutes: _backgroundSessionTimeoutMinutes),
+      const Duration(minutes: _backgroundSessionTimeoutMinutes),
       () {
         if (_isSessionActive && _currentSession != null) {
           print('Background timeout reached. Auto-ending session...');
@@ -121,6 +120,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
               builder: (context) => SessionResultsScreen(
                 summary: summary,
                 events: events,
+                behavior: _behavior,
               ),
             ),
           );
@@ -263,6 +263,7 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
             builder: (context) => SessionResultsScreen(
               summary: summary,
               events: sessionEvents,
+              behavior: _behavior,
             ),
           ),
         );
@@ -705,20 +706,40 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
 }
 
 /// Screen to display session results with events timeline and behavior metrics
-class SessionResultsScreen extends StatelessWidget {
+class SessionResultsScreen extends StatefulWidget {
   final BehaviorSessionSummary summary;
   final List<BehaviorEvent> events;
+  final SynheartBehavior? behavior;
 
   const SessionResultsScreen({
     super.key,
     required this.summary,
     required this.events,
+    this.behavior,
   });
+
+  @override
+  State<SessionResultsScreen> createState() => _SessionResultsScreenState();
+}
+
+class _SessionResultsScreenState extends State<SessionResultsScreen> {
+  DateTime? _selectedStartTime;
+  DateTime? _selectedEndTime;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize time range to session start/end
+    final sessionStartUtc = DateTime.parse(widget.summary.startAt);
+    final sessionEndUtc = DateTime.parse(widget.summary.endAt);
+    _selectedStartTime = sessionStartUtc;
+    _selectedEndTime = sessionEndUtc;
+  }
 
   @override
   Widget build(BuildContext context) {
     // Sort events by timestamp (oldest first)
-    final sortedEvents = List<BehaviorEvent>.from(events)
+    final sortedEvents = List<BehaviorEvent>.from(widget.events)
       ..sort((a, b) {
         try {
           final timeA = DateTime.parse(a.timestamp);
@@ -730,7 +751,7 @@ class SessionResultsScreen extends StatelessWidget {
       });
 
     // Calculate relative time from session start
-    final sessionStart = DateTime.parse(summary.startAt);
+    final sessionStart = DateTime.parse(widget.summary.startAt);
 
     return Scaffold(
       appBar: AppBar(
@@ -754,21 +775,81 @@ class SessionResultsScreen extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-                    _buildInfoRow('Session ID', summary.sessionId),
+                    _buildInfoRow('Session ID', widget.summary.sessionId),
                     _buildInfoRow(
-                        'Start Time', _formatDateTime(summary.startAt)),
-                    _buildInfoRow('End Time', _formatDateTime(summary.endAt)),
-                    _buildInfoRow('Duration', _formatMs(summary.durationMs)),
+                        'Start Time', _formatDateTime(widget.summary.startAt)),
                     _buildInfoRow(
-                        'Micro Session', summary.microSession ? 'Yes' : 'No'),
-                    _buildInfoRow('OS', summary.os),
-                    if (summary.appId != null)
-                      _buildInfoRow('App ID', summary.appId!),
-                    if (summary.appName != null)
-                      _buildInfoRow('App Name', summary.appName!),
+                        'End Time', _formatDateTime(widget.summary.endAt)),
                     _buildInfoRow(
-                        'Session Spacing', _formatMs(summary.sessionSpacing)),
+                        'Duration', _formatMs(widget.summary.durationMs)),
+                    _buildInfoRow('Micro Session',
+                        widget.summary.microSession ? 'Yes' : 'No'),
+                    _buildInfoRow('OS', widget.summary.os),
+                    if (widget.summary.appId != null)
+                      _buildInfoRow('App ID', widget.summary.appId!),
+                    if (widget.summary.appName != null)
+                      _buildInfoRow('App Name', widget.summary.appName!),
+                    _buildInfoRow('Session Spacing',
+                        _formatMs(widget.summary.sessionSpacing)),
                     _buildInfoRow('Total Events', '${sortedEvents.length}'),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    // Time Range Picker Section
+                    Text(
+                      'Time Range Selection',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    // Start Time Picker
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _pickStartTime(context),
+                            icon: const Icon(Icons.access_time),
+                            label: Text(
+                              _selectedStartTime != null
+                                  ? 'Start: ${_formatDateTimeWithSeconds(_selectedStartTime!.toLocal())}'
+                                  : 'Pick Start Time',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // End Time Picker
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _pickEndTime(context),
+                            icon: const Icon(Icons.access_time),
+                            label: Text(
+                              _selectedEndTime != null
+                                  ? 'End: ${_formatDateTimeWithSeconds(_selectedEndTime!.toLocal())}'
+                                  : 'Pick End Time',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Calculate Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: (_selectedStartTime != null &&
+                                _selectedEndTime != null)
+                            ? () => _calculateAndLog()
+                            : null,
+                        icon: const Icon(Icons.calculate),
+                        label: const Text('Calculate Metrics'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -792,13 +873,13 @@ class SessionResultsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     _buildInfoRow('Motion Data Available',
-                        summary.motionData != null ? 'Yes' : 'No'),
+                        widget.summary.motionData != null ? 'Yes' : 'No'),
                     _buildInfoRow('Motion Data Count',
-                        '${summary.motionData?.length ?? 0} windows'),
+                        '${widget.summary.motionData?.length ?? 0} windows'),
                     _buildInfoRow('Motion State Available',
-                        summary.motionState != null ? 'Yes' : 'No'),
-                    if (summary.motionData != null &&
-                        summary.motionData!.isNotEmpty) ...[
+                        widget.summary.motionState != null ? 'Yes' : 'No'),
+                    if (widget.summary.motionData != null &&
+                        widget.summary.motionData!.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
                         'First window sample (first 5 features):',
@@ -806,7 +887,7 @@ class SessionResultsScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        summary.motionData!.first.features.entries
+                        widget.summary.motionData!.first.features.entries
                             .take(5)
                             .map((e) =>
                                 '${e.key}: ${e.value.toStringAsFixed(4)}')
@@ -824,7 +905,7 @@ class SessionResultsScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Motion State Card
-            if (summary.motionState != null) ...[
+            if (widget.summary.motionState != null) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
@@ -836,18 +917,21 @@ class SessionResultsScreen extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 12),
-                      _buildInfoRow(
-                          'Major State', summary.motionState!.majorState),
+                      _buildInfoRow('Major State',
+                          widget.summary.motionState!.majorState),
                       _buildInfoRow('Major State %',
-                          '${(summary.motionState!.majorStatePct * 100).toStringAsFixed(1)}%'),
-                      _buildInfoRow('ML Model', summary.motionState!.mlModel),
-                      _buildInfoRow('Confidence',
-                          summary.motionState!.confidence.toStringAsFixed(2)),
+                          '${(widget.summary.motionState!.majorStatePct * 100).toStringAsFixed(1)}%'),
+                      _buildInfoRow(
+                          'ML Model', widget.summary.motionState!.mlModel),
+                      _buildInfoRow(
+                          'Confidence',
+                          widget.summary.motionState!.confidence
+                              .toStringAsFixed(2)),
                       const SizedBox(height: 12),
                       const Divider(),
                       const SizedBox(height: 8),
                       Text(
-                        'State Array (${summary.motionState!.state.length} windows):',
+                        'State Array (${widget.summary.motionState!.state.length} windows):',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 8),
@@ -859,7 +943,7 @@ class SessionResultsScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: SelectableText(
-                          '[${summary.motionState!.state.map((s) => '"$s"').join(', ')}]',
+                          '[${widget.summary.motionState!.state.map((s) => '"$s"').join(', ')}]',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     fontFamily: 'monospace',
@@ -872,7 +956,7 @@ class SessionResultsScreen extends StatelessWidget {
                       Wrap(
                         spacing: 8,
                         runSpacing: 4,
-                        children: summary.motionState!.state
+                        children: widget.summary.motionState!.state
                             .asMap()
                             .entries
                             .map((entry) {
@@ -896,8 +980,8 @@ class SessionResultsScreen extends StatelessWidget {
             ],
 
             // Motion Data Card (ML Features)
-            if (summary.motionData != null &&
-                summary.motionData!.isNotEmpty) ...[
+            if (widget.summary.motionData != null &&
+                widget.summary.motionData!.isNotEmpty) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
@@ -911,7 +995,7 @@ class SessionResultsScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                       _buildInfoRow(
                         'Data Points',
-                        '${summary.motionData!.length} time windows',
+                        '${widget.summary.motionData!.length} time windows',
                       ),
                       _buildInfoRow(
                         'Time Window',
@@ -927,7 +1011,7 @@ class SessionResultsScreen extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 8),
-                      ...summary.motionData!.take(1).map((dataPoint) {
+                      ...widget.summary.motionData!.take(1).map((dataPoint) {
                         return ExpansionTile(
                           title: Text(
                             'Window: ${dataPoint.timestamp}',
@@ -995,11 +1079,11 @@ class SessionResultsScreen extends StatelessWidget {
                           ],
                         );
                       }),
-                      if (summary.motionData!.length > 1)
+                      if (widget.summary.motionData!.length > 1)
                         Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: Text(
-                            '... and ${summary.motionData!.length - 1} more windows',
+                            '... and ${widget.summary.motionData!.length - 1} more windows',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
@@ -1024,12 +1108,12 @@ class SessionResultsScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     _buildInfoRow(
                         'Avg Screen Brightness',
-                        summary.deviceContext.avgScreenBrightness
+                        widget.summary.deviceContext.avgScreenBrightness
                             .toStringAsFixed(3)),
                     _buildInfoRow('Start Orientation',
-                        summary.deviceContext.startOrientation),
+                        widget.summary.deviceContext.startOrientation),
                     _buildInfoRow('Orientation Changes',
-                        '${summary.deviceContext.orientationChanges}'),
+                        '${widget.summary.deviceContext.orientationChanges}'),
                   ],
                 ),
               ),
@@ -1050,9 +1134,9 @@ class SessionResultsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     _buildInfoRow('Total Events',
-                        '${summary.activitySummary.totalEvents}'),
+                        '${widget.summary.activitySummary.totalEvents}'),
                     _buildInfoRow('App Switch Count',
-                        '${summary.activitySummary.appSwitchCount}'),
+                        '${widget.summary.activitySummary.appSwitchCount}'),
                   ],
                 ),
               ),
@@ -1074,48 +1158,53 @@ class SessionResultsScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     _buildInfoRow(
                         'Interaction Intensity',
-                        summary.behavioralMetrics.interactionIntensity
+                        widget.summary.behavioralMetrics.interactionIntensity
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Task Switch Rate',
-                        summary.behavioralMetrics.taskSwitchRate
+                        widget.summary.behavioralMetrics.taskSwitchRate
                             .toStringAsFixed(3)),
-                    _buildInfoRow('Task Switch Cost',
-                        _formatMs(summary.behavioralMetrics.taskSwitchCost)),
+                    _buildInfoRow(
+                        'Task Switch Cost',
+                        _formatMs(
+                            widget.summary.behavioralMetrics.taskSwitchCost)),
                     _buildInfoRow(
                         'Idle Time Ratio',
-                        summary.behavioralMetrics.idleTimeRatio
+                        widget.summary.behavioralMetrics.idleTimeRatio
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Active Time Ratio',
-                        summary.behavioralMetrics.activeTimeRatio
+                        widget.summary.behavioralMetrics.activeTimeRatio
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Notification Load',
-                        summary.behavioralMetrics.notificationLoad
+                        widget.summary.behavioralMetrics.notificationLoad
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Burstiness',
-                        summary.behavioralMetrics.burstiness
+                        widget.summary.behavioralMetrics.burstiness
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Distraction Score',
-                        summary.behavioralMetrics.behavioralDistractionScore
+                        widget.summary.behavioralMetrics
+                            .behavioralDistractionScore
                             .toStringAsFixed(3)),
-                    _buildInfoRow('Focus Hint',
-                        summary.behavioralMetrics.focusHint.toStringAsFixed(3)),
+                    _buildInfoRow(
+                        'Focus Hint',
+                        widget.summary.behavioralMetrics.focusHint
+                            .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Fragmented Idle Ratio',
-                        summary.behavioralMetrics.fragmentedIdleRatio
+                        widget.summary.behavioralMetrics.fragmentedIdleRatio
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Scroll Jitter Rate',
-                        summary.behavioralMetrics.scrollJitterRate
+                        widget.summary.behavioralMetrics.scrollJitterRate
                             .toStringAsFixed(3)),
                     _buildInfoRow('Deep Focus Blocks',
-                        '${summary.behavioralMetrics.deepFocusBlocks.length}'),
-                    if (summary
-                        .behavioralMetrics.deepFocusBlocks.isNotEmpty) ...[
+                        '${widget.summary.behavioralMetrics.deepFocusBlocks.length}'),
+                    if (widget.summary.behavioralMetrics.deepFocusBlocks
+                        .isNotEmpty) ...[
                       const SizedBox(height: 8),
                       const Text(
                         'Deep Focus Block Details:',
@@ -1125,7 +1214,7 @@ class SessionResultsScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      ...summary.behavioralMetrics.deepFocusBlocks
+                      ...widget.summary.behavioralMetrics.deepFocusBlocks
                           .asMap()
                           .entries
                           .map((entry) {
@@ -1160,21 +1249,23 @@ class SessionResultsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     _buildInfoRow('Notification Count',
-                        '${summary.notificationSummary.notificationCount}'),
+                        '${widget.summary.notificationSummary.notificationCount}'),
                     _buildInfoRow('Notifications Ignored',
-                        '${summary.notificationSummary.notificationIgnored}'),
+                        '${widget.summary.notificationSummary.notificationIgnored}'),
                     _buildInfoRow(
                         'Ignore Rate',
-                        summary.notificationSummary.notificationIgnoreRate
+                        widget
+                            .summary.notificationSummary.notificationIgnoreRate
                             .toStringAsFixed(3)),
                     _buildInfoRow(
                         'Clustering Index',
-                        summary.notificationSummary.notificationClusteringIndex
+                        widget.summary.notificationSummary
+                            .notificationClusteringIndex
                             .toStringAsFixed(3)),
                     _buildInfoRow('Call Count',
-                        '${summary.notificationSummary.callCount}'),
+                        '${widget.summary.notificationSummary.callCount}'),
                     _buildInfoRow('Calls Ignored',
-                        '${summary.notificationSummary.callIgnored}'),
+                        '${widget.summary.notificationSummary.callIgnored}'),
                   ],
                 ),
               ),
@@ -1183,7 +1274,7 @@ class SessionResultsScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Typing Session Summary Card
-            if (summary.typingSessionSummary != null) ...[
+            if (widget.summary.typingSessionSummary != null) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
@@ -1202,73 +1293,76 @@ class SessionResultsScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       _buildInfoRow('Typing Sessions',
-                          '${summary.typingSessionSummary!.typingSessionCount}'),
+                          '${widget.summary.typingSessionSummary!.typingSessionCount}'),
                       _buildInfoRow(
                           'Avg Keystrokes/Session',
-                          summary
-                              .typingSessionSummary!.averageKeystrokesPerSession
+                          widget.summary.typingSessionSummary!
+                              .averageKeystrokesPerSession
                               .toStringAsFixed(1)),
                       _buildInfoRow(
                           'Avg Session Duration',
-                          _formatMs((summary.typingSessionSummary!
+                          _formatMs((widget.summary.typingSessionSummary!
                                       .averageTypingSessionDuration *
                                   1000)
                               .round())),
                       _buildInfoRow('Avg Typing Speed',
-                          '${summary.typingSessionSummary!.averageTypingSpeed.toStringAsFixed(2)} taps/s'),
+                          '${widget.summary.typingSessionSummary!.averageTypingSpeed.toStringAsFixed(2)} taps/s'),
                       _buildInfoRow(
                           'Avg Typing Gap',
-                          _formatMs(summary
-                              .typingSessionSummary!.averageTypingGap
+                          _formatMs(widget
+                              .summary.typingSessionSummary!.averageTypingGap
                               .round())),
                       _buildInfoRow(
                           'Average Inter-tap Interval',
-                          _formatMs(summary
-                              .typingSessionSummary!.averageInterTapInterval
+                          _formatMs(widget.summary.typingSessionSummary!
+                              .averageInterTapInterval
                               .round())),
                       _buildInfoRow(
                           'Cadence Stability',
-                          summary.typingSessionSummary!.typingCadenceStability
+                          widget.summary.typingSessionSummary!
+                              .typingCadenceStability
                               .toStringAsFixed(3)),
                       _buildInfoRow(
                           'Burstiness',
-                          summary.typingSessionSummary!.burstinessOfTyping
+                          widget
+                              .summary.typingSessionSummary!.burstinessOfTyping
                               .toStringAsFixed(3)),
                       _buildInfoRow(
                           'Total Typing Duration',
-                          _formatMs(summary
-                                  .typingSessionSummary!.totalTypingDuration *
+                          _formatMs(widget.summary.typingSessionSummary!
+                                  .totalTypingDuration *
                               1000)),
                       _buildInfoRow(
                           'Active Typing Ratio',
-                          summary.typingSessionSummary!.activeTypingRatio
+                          widget.summary.typingSessionSummary!.activeTypingRatio
                               .toStringAsFixed(3)),
                       _buildInfoRow(
                           'Typing Contribution to Intensity',
-                          summary.typingSessionSummary!
+                          widget.summary.typingSessionSummary!
                               .typingContributionToInteractionIntensity
                               .toStringAsFixed(3)),
                       _buildInfoRow('Deep Typing Blocks',
-                          '${summary.typingSessionSummary!.deepTypingBlocks}'),
+                          '${widget.summary.typingSessionSummary!.deepTypingBlocks}'),
                       _buildInfoRow(
                           'Typing Fragmentation',
-                          summary.typingSessionSummary!.typingFragmentation
+                          widget
+                              .summary.typingSessionSummary!.typingFragmentation
                               .toStringAsFixed(3)),
-                      if (summary.typingSessionSummary!.individualTypingSessions
-                          .isNotEmpty) ...[
+                      if (widget.summary.typingSessionSummary!
+                          .individualTypingSessions.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         const Divider(),
                         const SizedBox(height: 8),
                         Text(
-                          'Individual Typing Sessions (${summary.typingSessionSummary!.individualTypingSessions.length})',
+                          'Individual Typing Sessions (${widget.summary.typingSessionSummary!.individualTypingSessions.length})',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
                           ),
                         ),
                         const SizedBox(height: 8),
-                        ...summary
-                            .typingSessionSummary!.individualTypingSessions
+                        ...widget.summary.typingSessionSummary!
+                            .individualTypingSessions
                             .asMap()
                             .entries
                             .map((entry) {
@@ -1360,13 +1454,13 @@ class SessionResultsScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     _buildInfoRow(
                         'Internet',
-                        summary.systemState.internetState
+                        widget.summary.systemState.internetState
                             ? 'Connected'
                             : 'Disconnected'),
                     _buildInfoRow('Do Not Disturb',
-                        summary.systemState.doNotDisturb ? 'On' : 'Off'),
+                        widget.summary.systemState.doNotDisturb ? 'On' : 'Off'),
                     _buildInfoRow('Charging',
-                        summary.systemState.charging ? 'Yes' : 'No'),
+                        widget.summary.systemState.charging ? 'Yes' : 'No'),
                   ],
                 ),
               ),
@@ -1417,6 +1511,560 @@ class SessionResultsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _pickStartTime(BuildContext context) async {
+    final sessionStartUtc = DateTime.parse(widget.summary.startAt);
+    final sessionEndUtc = DateTime.parse(widget.summary.endAt);
+    final sessionStartLocal = sessionStartUtc.toLocal();
+    final sessionEndLocal = sessionEndUtc.toLocal();
+
+    final selected = await _showDateTimePicker(
+      context: context,
+      title: 'Select Start Time',
+      initialDateTime: _selectedStartTime?.toLocal() ?? sessionStartLocal,
+      firstDate: sessionStartLocal.subtract(const Duration(days: 1)),
+      lastDate: sessionEndLocal.add(const Duration(days: 1)),
+    );
+
+    if (selected != null) {
+      setState(() {
+        _selectedStartTime = selected.toUtc();
+      });
+    }
+  }
+
+  Future<void> _pickEndTime(BuildContext context) async {
+    final sessionStartUtc = DateTime.parse(widget.summary.startAt);
+    final sessionEndUtc = DateTime.parse(widget.summary.endAt);
+    final sessionStartLocal = sessionStartUtc.toLocal();
+    final sessionEndLocal = sessionEndUtc.toLocal();
+
+    final selected = await _showDateTimePicker(
+      context: context,
+      title: 'Select End Time',
+      initialDateTime: _selectedEndTime?.toLocal() ??
+          (_selectedStartTime?.toLocal() ?? sessionStartLocal),
+      firstDate: _selectedStartTime?.toLocal() ?? sessionStartLocal,
+      lastDate: sessionEndLocal.add(const Duration(days: 1)),
+    );
+
+    if (selected != null) {
+      setState(() {
+        _selectedEndTime = selected.toUtc();
+      });
+    }
+  }
+
+  Future<void> _calculateAndLog() async {
+    if (_selectedStartTime == null || _selectedEndTime == null) {
+      print('ERROR: Start time or end time is null');
+      return;
+    }
+
+    if (widget.behavior == null) {
+      print('ERROR: Behavior SDK is not available');
+      return;
+    }
+
+    // Validate that start time is before end time
+    if (_selectedStartTime!.isAfter(_selectedEndTime!)) {
+      print('');
+      print('========================================');
+      print('ERROR: INVALID TIME RANGE');
+      print('========================================');
+      print('Start time must be before end time!');
+      print('');
+      print('Selected Start (UTC): ${_selectedStartTime!.toIso8601String()}');
+      print('Selected End (UTC): ${_selectedEndTime!.toIso8601String()}');
+      print(
+          'Duration: ${_formatMs(_selectedEndTime!.difference(_selectedStartTime!).inMilliseconds)}');
+      print('========================================');
+      print('');
+      return;
+    }
+
+    // Validate time range is within session duration (with 1 second tolerance)
+    final sessionStartUtc = DateTime.parse(widget.summary.startAt);
+    final sessionEndUtc = DateTime.parse(widget.summary.endAt);
+    final sessionStartMs = sessionStartUtc.millisecondsSinceEpoch;
+    final sessionEndMs = sessionEndUtc.millisecondsSinceEpoch;
+    final selectedStartMs = _selectedStartTime!.millisecondsSinceEpoch;
+    final selectedEndMs = _selectedEndTime!.millisecondsSinceEpoch;
+    const toleranceMs = 1000; // 1 second tolerance
+
+    if (selectedStartMs < (sessionStartMs - toleranceMs) ||
+        selectedEndMs > (sessionEndMs + toleranceMs)) {
+      print('');
+      print('========================================');
+      print('ERROR: TIME RANGE OUT OF BOUNDS');
+      print('========================================');
+      print('Session Start (UTC): ${sessionStartUtc.toIso8601String()}');
+      print('Session End (UTC): ${sessionEndUtc.toIso8601String()}');
+      print(
+          'Session Duration: ${_formatMs((sessionEndMs - sessionStartMs).toInt())}');
+      print('');
+      print('Selected Start (UTC): ${_selectedStartTime!.toIso8601String()}');
+      print('Selected End (UTC): ${_selectedEndTime!.toIso8601String()}');
+      print(
+          'Selected Duration: ${_formatMs((selectedEndMs - selectedStartMs).toInt())}');
+      print('');
+      if (selectedStartMs < (sessionStartMs - toleranceMs)) {
+        final diffMs = sessionStartMs - selectedStartMs;
+        print(
+            'ERROR: Selected start time is ${_formatMs(diffMs.toInt())} before session start time');
+      }
+      if (selectedEndMs > (sessionEndMs + toleranceMs)) {
+        final diffMs = selectedEndMs - sessionEndMs;
+        print(
+            'ERROR: Selected end time is ${_formatMs(diffMs.toInt())} after session end time');
+      }
+      print('========================================');
+      print('');
+      return;
+    }
+
+    final startTimestampSeconds =
+        _selectedStartTime!.millisecondsSinceEpoch ~/ 1000;
+    final endTimestampSeconds =
+        _selectedEndTime!.millisecondsSinceEpoch ~/ 1000;
+
+    print('========================================');
+    print('CALCULATE METRICS FOR TIME RANGE');
+    print('========================================');
+    print('Session ID: ${widget.summary.sessionId}');
+    print('Start Time (UTC): ${_selectedStartTime!.toIso8601String()}');
+    print('End Time (UTC): ${_selectedEndTime!.toIso8601String()}');
+    print(
+        'Start Time (Local): ${_selectedStartTime!.toLocal().toIso8601String()}');
+    print('End Time (Local): ${_selectedEndTime!.toLocal().toIso8601String()}');
+    print('Start Timestamp (seconds): $startTimestampSeconds');
+    print('End Timestamp (seconds): $endTimestampSeconds');
+    print('Duration: ${endTimestampSeconds - startTimestampSeconds} seconds');
+    print(
+        'Duration: ${_formatMs((endTimestampSeconds - startTimestampSeconds) * 1000)}');
+    print('========================================');
+    print('');
+
+    try {
+      print('Calling calculateMetricsForTimeRange...');
+      final result = await widget.behavior!.calculateMetricsForTimeRange(
+        startTimestampSeconds: startTimestampSeconds,
+        endTimestampSeconds: endTimestampSeconds,
+        sessionId: widget.summary.sessionId,
+      );
+
+      // Convert to Map<String, dynamic> safely
+      final metrics = Map<String, dynamic>.from(result);
+
+      print('');
+      print('========================================');
+      print('SESSION BEHAVIOR METRICS');
+      print('========================================');
+      print('');
+      print('"session behavior" : {');
+      print('    "session_id": "${widget.summary.sessionId}",');
+      print('    "start_at": "${_selectedStartTime!.toIso8601String()}",');
+      print('    "end_at": "${_selectedEndTime!.toIso8601String()}",');
+      print('    "micro_session": ${widget.summary.microSession},');
+      print('    "OS": "${widget.summary.os}",');
+      if (widget.summary.appId != null) {
+        print('    "app_id": "${widget.summary.appId}",');
+      }
+      print('    "session_spacing": ${widget.summary.sessionSpacing},');
+
+      // Motion State
+      if (metrics['motion_state'] != null) {
+        final motionState =
+            Map<String, dynamic>.from(metrics['motion_state'] as Map);
+        print('    "motion_state": {');
+        if (motionState['major_state'] != null) {
+          print('        "state": "${motionState['major_state']}",');
+        }
+        if (motionState['ml_model'] != null) {
+          print('        "ml_model": "${motionState['ml_model']}",');
+        }
+        if (motionState['confidence'] != null) {
+          print('        "confidence": ${motionState['confidence']}');
+        }
+        print('    },');
+      }
+
+      // Device Context
+      if (metrics['device_context'] != null) {
+        final deviceContext =
+            Map<String, dynamic>.from(metrics['device_context'] as Map);
+        print('    "device_context": {');
+        print(
+            '      "avg_screen_brightness": ${deviceContext['avg_screen_brightness'] ?? 0},');
+        print(
+            '      "start_orientation": "${deviceContext['start_orientation'] ?? 'N/A'}",');
+        print(
+            '      "orientation_changes": ${deviceContext['orientation_changes'] ?? 0}');
+        print('    },');
+      }
+
+      // Activity Summary
+      if (metrics['activity_summary'] != null) {
+        final activitySummary =
+            Map<String, dynamic>.from(metrics['activity_summary'] as Map);
+        print('  "activity_summary": {');
+        print('    "total_events": ${activitySummary['total_events'] ?? 0},');
+        print(
+            '    "app_switch_count": ${activitySummary['app_switch_count'] ?? 0}');
+        print('  },');
+      }
+
+      // Behavioral Metrics
+      if (metrics['behavioral_metrics'] != null) {
+        final behavioralMetrics =
+            Map<String, dynamic>.from(metrics['behavioral_metrics'] as Map);
+        print('  "behavioral_metrics": {');
+        print(
+            '      "interaction_intensity": ${behavioralMetrics['interaction_intensity'] ?? 0},');
+        print(
+            '      "task_switch_rate": ${behavioralMetrics['task_switch_rate'] ?? 0},');
+        print(
+            '      "task_switch_cost": ${behavioralMetrics['task_switch_cost'] ?? 0},');
+        print(
+            '      "idle_time_ratio": ${behavioralMetrics['idle_time_ratio'] ?? 0},');
+        print(
+            '      "active_time_ratio": ${behavioralMetrics['active_time_ratio'] ?? 0},');
+        print(
+            '      "notification_load": ${behavioralMetrics['notification_load'] ?? 0},');
+        print('      "burstiness": ${behavioralMetrics['burstiness'] ?? 0},');
+        print(
+            '      "behavioral_distraction_score": ${behavioralMetrics['behavioral_distraction_score'] ?? 0},');
+
+        if (behavioralMetrics['deep_focus_blocks'] != null) {
+          final deepFocusBlocks =
+              behavioralMetrics['deep_focus_blocks'] as List;
+          print('      "deep_focus_blocks": [');
+          for (var i = 0; i < deepFocusBlocks.length; i++) {
+            final block = Map<String, dynamic>.from(deepFocusBlocks[i] as Map);
+            print('        {');
+            print('          "start_at": "${block['start_at'] ?? ''}",');
+            print('          "end_at": "${block['end_at'] ?? ''}",');
+            print('          "duration_ms": ${block['duration_ms'] ?? 0}');
+            if (i < deepFocusBlocks.length - 1) {
+              print('        },');
+            } else {
+              print('        }');
+            }
+          }
+          print('      ]');
+        }
+        print('  },');
+      }
+
+      // Notification Summary
+      if (metrics['notification_summary'] != null) {
+        final notificationSummary =
+            Map<String, dynamic>.from(metrics['notification_summary'] as Map);
+        print('  "notification_summary": {');
+        print(
+            '    "notification_count": ${notificationSummary['notification_count'] ?? 0},');
+        print(
+            '    "notification_ignored": ${notificationSummary['notification_ignored'] ?? 0},');
+        print(
+            '    "notification_ignore_rate": ${notificationSummary['notification_ignore_rate'] ?? 0},');
+        print(
+            '    "notification_clustering_index": ${notificationSummary['notification_clustering_index'] ?? 0},');
+        print('    "call_count": ${notificationSummary['call_count'] ?? 0},');
+        print(
+            '    "call_ignored": ${notificationSummary['call_ignored'] ?? 0}');
+        print('  },');
+      }
+
+      // System State
+      if (metrics['system_state'] != null) {
+        final systemState =
+            Map<String, dynamic>.from(metrics['system_state'] as Map);
+        print('  "system_state": {');
+        print(
+            '    "internet_state": ${systemState['internet_state'] ?? false},');
+        print(
+            '    "do_not_disturb": ${systemState['do_not_disturb'] ?? false},');
+        print('    "charging": ${systemState['charging'] ?? false}');
+        print('  }');
+      }
+
+      print('}');
+      print('');
+      print('========================================');
+    } catch (e, stackTrace) {
+      print('');
+      print('ERROR calculating metrics: $e');
+      print('Stack trace: $stackTrace');
+      print('');
+    }
+  }
+
+  Future<DateTime?> _showDateTimePicker({
+    required BuildContext context,
+    required String title,
+    required DateTime initialDateTime,
+    required DateTime firstDate,
+    required DateTime lastDate,
+  }) async {
+    DateTime selectedDate = initialDateTime;
+    int hour = initialDateTime.hour;
+    int minute = initialDateTime.minute;
+    int second = initialDateTime.second;
+
+    return showDialog<DateTime>(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(title),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Date picker section
+                    const Text(
+                      'Date',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: () async {
+                        final pickedDate = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: firstDate,
+                          lastDate: lastDate,
+                        );
+                        if (pickedDate != null) {
+                          setState(() {
+                            selectedDate = DateTime(
+                              pickedDate.year,
+                              pickedDate.month,
+                              pickedDate.day,
+                              hour,
+                              minute,
+                              second,
+                            );
+                          });
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            const Icon(Icons.calendar_today),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Time picker section
+                    const Text(
+                      'Time (HH:MM:SS)',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Hour
+                        Column(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_up),
+                              onPressed: () {
+                                setState(() {
+                                  hour = (hour + 1) % 24;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                            Container(
+                              width: 60,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                hour.toString().padLeft(2, '0'),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_down),
+                              onPressed: () {
+                                setState(() {
+                                  hour = (hour - 1 + 24) % 24;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                        const Text(':', style: TextStyle(fontSize: 24)),
+                        // Minute
+                        Column(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_up),
+                              onPressed: () {
+                                setState(() {
+                                  minute = (minute + 1) % 60;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                            Container(
+                              width: 60,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                minute.toString().padLeft(2, '0'),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_down),
+                              onPressed: () {
+                                setState(() {
+                                  minute = (minute - 1 + 60) % 60;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                        const Text(':', style: TextStyle(fontSize: 24)),
+                        // Second
+                        Column(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_up),
+                              onPressed: () {
+                                setState(() {
+                                  second = (second + 1) % 60;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                            Container(
+                              width: 60,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                second.toString().padLeft(2, '0'),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_drop_down),
+                              onPressed: () {
+                                setState(() {
+                                  second = (second - 1 + 60) % 60;
+                                  selectedDate = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    hour,
+                                    minute,
+                                    second,
+                                  );
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop(selectedDate);
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatDateTimeWithSeconds(DateTime dateTime) {
+    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} '
+        '${dateTime.hour.toString().padLeft(2, '0')}:'
+        '${dateTime.minute.toString().padLeft(2, '0')}:'
+        '${dateTime.second.toString().padLeft(2, '0')}';
   }
 
   Widget _buildInfoRow(String label, String value) {

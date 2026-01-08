@@ -28,6 +28,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     private var eventHandler: ((BehaviorEvent) -> Unit)? = null
     private var currentSessionId: String? = null
     private val sessionData = ConcurrentHashMap<String, SessionData>()
+    private val sessionMotionData =
+            ConcurrentHashMap<String, List<MotionSignalCollector.MotionDataPoint>>()
     private val statsCollector = StatsCollector()
 
     // Signal collectors
@@ -119,6 +121,15 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     }
 
     fun startSession(sessionId: String) {
+        // Clear previous session data when starting a new session
+        // This ensures data persists until the next session starts, allowing
+        // calculateMetricsForTimeRange to access it for ended sessions
+        val previousSessionId = currentSessionId
+        if (previousSessionId != null && previousSessionId != sessionId) {
+            sessionData.remove(previousSessionId)
+            sessionMotionData.remove(previousSessionId)
+        }
+
         currentSessionId = sessionId
         val now = System.currentTimeMillis()
 
@@ -419,9 +430,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                         mapOf("timestamp" to dataPoint.timestamp, "features" to dataPoint.features)
                     }
             summary = summary + mapOf("motion_data" to motionDataJson)
+
+            // Store motion data for on-demand queries (will be cleared when next session starts)
+            sessionMotionData[sessionId] = motionData
         }
 
-        sessionData.remove(sessionId)
+        // Don't remove sessionData here - it will be cleared when the next session starts
+        // This allows calculateMetricsForTimeRange to access data for ended sessions
         return summary
     }
 
@@ -1300,6 +1315,165 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
     fun getCurrentStats(): BehaviorStats {
         return statsCollector.getCurrentStats()
+    }
+
+    fun calculateMetricsForTimeRange(
+            startTimestampMs: Long,
+            endTimestampMs: Long,
+            sessionId: String?
+    ): Map<String, Any?> {
+        // Determine which session to use
+        val sessionIdToUse =
+                sessionId
+                        ?: currentSessionId
+                                ?: throw IllegalStateException(
+                                "No active session and no sessionId provided"
+                        )
+
+        // Get session data (may be null if session has ended)
+        val sessionDataEntry = sessionData[sessionIdToUse]
+
+        // Validate time range is within session duration (with 1 second tolerance)
+        if (sessionDataEntry != null) {
+            val sessionStartMs = sessionDataEntry.startTime
+            val sessionEndMs = sessionDataEntry.endTime ?: System.currentTimeMillis()
+            val toleranceMs = 1000L // 1 second tolerance
+
+            if (startTimestampMs < (sessionStartMs - toleranceMs) ||
+                            endTimestampMs > (sessionEndMs + toleranceMs)
+            ) {
+                throw IllegalArgumentException(
+                        "Time range [$startTimestampMs, $endTimestampMs] is out of session bounds " +
+                                "[$sessionStartMs, $sessionEndMs]. " +
+                                "Session duration: ${sessionEndMs - sessionStartMs}ms. " +
+                                "Allowed tolerance: ${toleranceMs}ms"
+                )
+            }
+        }
+
+        // Filter events by time range
+        val filteredEvents =
+                if (sessionDataEntry != null) {
+                    // Session is still active - get events from session data
+                    sessionDataEntry.events.filter { event ->
+                        try {
+                            val eventTime = Instant.parse(event.timestamp).toEpochMilli()
+                            eventTime >= startTimestampMs && eventTime <= endTimestampMs
+                        } catch (e: Exception) {
+                            false // Skip invalid timestamps
+                        }
+                    }
+                } else {
+                    // Session has ended - events should be retrieved from EventDatabase
+                    // For now, return empty list (EventDatabase integration can be added later)
+                    emptyList()
+                }
+
+        // Calculate duration
+        val duration = endTimestampMs - startTimestampMs
+        val durationSeconds = duration / 1000.0
+
+        // Create a temporary SessionData for calculations
+        val tempData =
+                SessionData(
+                        sessionId = sessionIdToUse,
+                        startTime = startTimestampMs,
+                        endTime = endTimestampMs,
+                        eventCount = filteredEvents.size,
+                        appSwitchCount = filteredEvents.count { it.eventType == "app_switch" },
+                        events = filteredEvents.toMutableList()
+                )
+
+        // Compute notification summary
+        val notificationEvents = filteredEvents.filter { it.eventType == "notification" }
+        val notificationCount = notificationEvents.size
+        val notificationIgnored = notificationEvents.count { it.metrics["action"] == "ignored" }
+        val notificationIgnoreRate =
+                if (notificationCount > 0) {
+                    notificationIgnored.toDouble() / notificationCount
+                } else 0.0
+        val notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
+
+        // Compute call summary
+        val callEvents = filteredEvents.filter { it.eventType == "call" }
+        val callCount = callEvents.size
+        val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
+
+        // Compute behavioral metrics
+        val behavioralMetrics =
+                computeBehavioralMetrics(tempData, duration, notificationCount, callCount)
+
+        // Compute typing session summary
+        val typingSessionSummary = computeTypingSessionSummary(tempData, duration)
+
+        // Get motion data for the time range
+        val allMotionData: List<MotionSignalCollector.MotionDataPoint> =
+                if (sessionDataEntry != null) {
+                    // Session is still active - get current motion data from collector
+                    val currentMotionData: List<MotionSignalCollector.MotionDataPoint> =
+                            motionSignalCollector.getCurrentMotionData()
+                    currentMotionData.filter { dataPoint: MotionSignalCollector.MotionDataPoint ->
+                        try {
+                            val dataPointTime = Instant.parse(dataPoint.timestamp).toEpochMilli()
+                            dataPointTime >= startTimestampMs && dataPointTime <= endTimestampMs
+                        } catch (e: Exception) {
+                            false // Skip invalid timestamps
+                        }
+                    }
+                } else {
+                    // Session has ended - motion data should be retrieved from stored data
+                    // For now, return empty list (motion data persistence can be added later)
+                    emptyList<MotionSignalCollector.MotionDataPoint>()
+                }
+
+        // Convert motion data to map format
+        val motionDataList: List<Map<String, Any>> =
+                allMotionData.map { dataPoint: MotionSignalCollector.MotionDataPoint ->
+                    mapOf("timestamp" to dataPoint.timestamp, "features" to dataPoint.features)
+                }
+
+        // Get current device context and system state
+        val currentScreenBrightness = getScreenBrightness()
+        val currentOrientation = context.resources.configuration.orientation
+        val orientationStr =
+                when (currentOrientation) {
+                    Configuration.ORIENTATION_LANDSCAPE -> "landscape"
+                    else -> "portrait"
+                }
+
+        // Build and return metrics map
+        return mapOf(
+                "behavioral_metrics" to behavioralMetrics,
+                "device_context" to
+                        mapOf(
+                                "avg_screen_brightness" to currentScreenBrightness.toDouble(),
+                                "start_orientation" to orientationStr,
+                                "orientation_changes" to
+                                        (sessionDataEntry?.orientationChangeCount ?: 0)
+                        ),
+                "system_state" to
+                        mapOf(
+                                "internet_state" to isInternetConnected(),
+                                "do_not_disturb" to isDoNotDisturbEnabled(),
+                                "charging" to isCharging()
+                        ),
+                "activity_summary" to
+                        mapOf(
+                                "total_events" to filteredEvents.size,
+                                "app_switch_count" to tempData.appSwitchCount
+                        ),
+                "notification_summary" to
+                        mapOf(
+                                "notification_count" to notificationCount,
+                                "notification_ignored" to notificationIgnored,
+                                "notification_ignore_rate" to notificationIgnoreRate,
+                                "notification_clustering_index" to notificationClusteringIndex,
+                                "call_count" to callCount,
+                                "call_ignored" to callIgnored
+                        ),
+                "typing_session_summary" to typingSessionSummary,
+                "motion_data" to motionDataList
+        )
     }
 
     fun updateConfig(newConfig: BehaviorConfig) {

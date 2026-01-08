@@ -22,6 +22,7 @@ These behavioral signals power downstream systems such as:
 - **Privacy-First**: No text, content, or personally identifiable information (PII) collected—only timing-based signals
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
+- **On-Demand Metrics**: Calculate behavioral metrics for custom time ranges within sessions
 - **Motion State Prediction**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using ML model inference
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
@@ -360,6 +361,33 @@ if (summary.motionState != null) {
   print('States: ${summary.motionState!.state}');
 }
 ```
+
+### On-Demand Metrics Calculation
+
+Calculate behavioral metrics for a custom time range within a session:
+
+```dart
+// Calculate metrics for a specific time range
+final metrics = await behavior.calculateMetricsForTimeRange(
+  startTimestampSeconds: 1767688063,  // Unix timestamp in seconds
+  endTimestampSeconds: 1767688130,     // Unix timestamp in seconds
+  sessionId: 'SESS-1767688063415',     // Optional: session ID (uses current if not provided)
+);
+
+// Access the calculated metrics
+print('Total events: ${metrics['activity_summary']['total_events']}');
+print('App switches: ${metrics['activity_summary']['app_switch_count']}');
+print('Interaction intensity: ${metrics['behavioral_metrics']['interaction_intensity']}');
+print('Distraction score: ${metrics['behavioral_metrics']['behavioral_distraction_score']}');
+
+// Motion state (if motion data is available)
+if (metrics['motion_state'] != null) {
+  print('Motion state: ${metrics['motion_state']['major_state']}');
+  print('Confidence: ${metrics['motion_state']['confidence']}');
+}
+```
+
+**Note**: The time range must be within the session's start and end times. The SDK validates this automatically and will throw an error if the range is out of bounds.
 
 ### Current Statistics
 
