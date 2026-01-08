@@ -83,6 +83,21 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
             let eventData = call.arguments as? [String: Any] ?? [:]
             sendEvent(eventData: eventData)
             result(nil)
+        case "calculateMetricsForTimeRange":
+            let args = call.arguments as? [String: Any] ?? [:]
+            let startTimestampMs = args["startTimestampMs"] as? Int64 ?? 0
+            let endTimestampMs = args["endTimestampMs"] as? Int64 ?? 0
+            let sessionId = args["sessionId"] as? String
+            do {
+                let metrics = try calculateMetricsForTimeRange(
+                    startTimestampMs: startTimestampMs,
+                    endTimestampMs: endTimestampMs,
+                    sessionId: sessionId
+                )
+                result(metrics)
+            } catch {
+                result(FlutterError(code: "CALCULATION_ERROR", message: error.localizedDescription, details: nil))
+            }
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -188,6 +203,7 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
     private func emitEvent(event: [String: Any]) {
         channel?.invokeMethod("onEvent", arguments: event)
     }
+    
 
     private func checkNotificationPermission(result: @escaping FlutterResult) {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -245,6 +261,21 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
         )
         
         behaviorSDK.receiveEventFromFlutter(event)
+    }
+    
+    private func calculateMetricsForTimeRange(
+        startTimestampMs: Int64,
+        endTimestampMs: Int64,
+        sessionId: String?
+    ) throws -> [String: Any] {
+        guard let behaviorSDK = self.behaviorSDK else {
+            throw NSError(domain: "SynheartBehaviorPlugin", code: 500, userInfo: [NSLocalizedDescriptionKey: "SDK not initialized"])
+        }
+        return try behaviorSDK.calculateMetricsForTimeRange(
+            startTimestampMs: startTimestampMs,
+            endTimestampMs: endTimestampMs,
+            sessionId: sessionId
+        )
     }
 }
 

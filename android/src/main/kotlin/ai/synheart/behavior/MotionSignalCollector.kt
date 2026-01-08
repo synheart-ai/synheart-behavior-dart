@@ -84,6 +84,13 @@ class MotionSignalCollector(private val context: Context, private var config: Be
         return motionDataPoints.toList()
     }
 
+    fun getCurrentMotionData(): List<MotionDataPoint> {
+        // Flush current window to ensure we have the latest data
+        flushCurrentWindow()
+        // Return current motion data without stopping collection
+        return motionDataPoints.toList()
+    }
+
     private fun startCollecting() {
         if (isCollecting || !config.enableMotionLite) return
 

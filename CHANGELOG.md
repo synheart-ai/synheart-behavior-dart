@@ -70,3 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Replaced `onnxruntime` with `flutter_onnxruntime` in `pubspec.yaml`
 - Build configuration now gracefully handles missing key.properties file for debug builds
+
+## [0.1.3] - 2026-01-08
+
+### Added
+
+- **On-Demand Metrics Calculation**: New `calculateMetricsForTimeRange()` method to calculate behavioral metrics for custom time ranges within a session
+- Time range validation to ensure selected ranges are within session bounds
+- Session data persistence improvements - data now persists until next session starts, enabling on-demand queries for ended sessions
+- Motion state inference support for on-demand calculations
+
+### Fixed
+
+- Fixed session data being cleared too early (now cleared when new session starts instead of when session ends)
+
+### Changed
+
+- Enhanced session data management to support on-demand metric calculations for ended sessions
+- Improved motion data handling with proper type conversions for nested maps
