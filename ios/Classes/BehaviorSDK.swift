@@ -319,7 +319,8 @@ public class BehaviorSDK {
         }.count
         
         // Compute behavioral metrics from events
-        let behavioralMetrics = computeBehavioralMetrics(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
+        // Try to use Rust (synheart-flux) for HSI-compliant metrics, fall back to Swift
+        let behavioralMetrics = computeBehavioralMetricsWithFlux(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
         
         // Compute typing session summary
         let typingSessionSummary = computeTypingSessionSummary(data: data, durationMs: Int64(duration))
@@ -626,10 +627,42 @@ public class BehaviorSDK {
             "deep_focus_blocks": deepFocusBlocks
         ]
     }
-    
+
+    /// Compute behavioral metrics using synheart-flux (Rust) when available,
+    /// falling back to Swift implementation if Rust library is not loaded.
+    private func computeBehavioralMetricsWithFlux(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> [String: Any] {
+        // Try to use Rust implementation for HSI-compliant metrics
+        if FluxBridge.shared.isAvailable {
+            // Convert events to synheart-flux JSON format
+            let eventTuples = data.events.map { event in
+                (timestamp: event.timestamp, eventType: event.eventType, metrics: event.metrics)
+            }
+
+            let fluxJson = convertEventsToFluxJson(
+                sessionId: data.sessionId,
+                deviceId: UIDevice.current.identifierForVendor?.uuidString ?? "ios-device",
+                timezone: TimeZone.current.identifier,
+                startTime: Date(timeIntervalSince1970: data.startTime / 1000),
+                endTime: Date(timeIntervalSince1970: data.endTime / 1000),
+                events: eventTuples
+            )
+
+            // Call Rust to compute HSI metrics
+            if let hsiJson = FluxBridge.shared.behaviorToHsi(fluxJson),
+               let metrics = extractBehavioralMetricsFromHsi(hsiJson) {
+                print("BehaviorSDK: Successfully computed metrics using synheart-flux")
+                return metrics
+            }
+            print("BehaviorSDK: Rust computation returned nil, falling back to Swift")
+        }
+
+        // Fall back to Swift implementation
+        return computeBehavioralMetrics(data: data, durationMs: durationMs, notificationCount: notificationCount, callCount: callCount)
+    }
+
     private func computeBehavioralMetrics(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> [String: Any] {
         let durationSeconds = Double(durationMs) / 1000.0
-        
+
         // Step 1: Compute inter-event times for burstiness (Barabási's burstiness index)
         let burstiness = computeBurstiness(events: data.events)
         

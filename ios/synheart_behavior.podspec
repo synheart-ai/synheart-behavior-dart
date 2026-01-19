@@ -15,12 +15,21 @@ The Synheart Behavioral SDK collects digital behavioral signals from smartphones
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
-  # Note: Add dependency on synheart-behavior-ios SDK when available
-  # s.dependency 'SynheartBehavior', '~> 1.0'
   s.platform = :ios, '12.0'
 
+  # Synheart Flux (Rust) XCFramework for HSI-compliant behavioral metrics
+  # The XCFramework should be placed at: ios/Frameworks/SynheartFlux.xcframework
+  # Download from synheart-flux releases or build from source
+  s.vendored_frameworks = 'Frameworks/SynheartFlux.xcframework'
+  s.preserve_paths = 'Frameworks/SynheartFlux.xcframework'
+
   # Flutter.framework does not contain a i386 slice.
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
+    # Enable linking with synheart-flux static library
+    'OTHER_LDFLAGS' => '-lsynheart_flux'
+  }
   s.swift_version = '5.0'
 end
 

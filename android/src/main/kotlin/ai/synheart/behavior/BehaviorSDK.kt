@@ -367,8 +367,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
         // Compute behavioral metrics from events
-        val behavioralMetrics =
-                computeBehavioralMetrics(data, duration, notificationCount, callCount)
+        // Try to use Rust (synheart-flux) for HSI-compliant metrics, fall back to Kotlin
+        val behavioralMetrics = computeBehavioralMetricsWithFlux(data, duration, notificationCount, callCount)
 
         // Compute typing session summary
         val typingSessionSummary = computeTypingSessionSummary(data, duration)
@@ -738,6 +738,48 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 "scroll_jitter_rate" to scrollJitterRate,
                 "deep_focus_blocks" to deepFocusBlocks
         )
+    }
+
+    /**
+     * Compute behavioral metrics using synheart-flux (Rust) when available,
+     * falling back to Kotlin implementation if Rust library is not loaded.
+     */
+    private fun computeBehavioralMetricsWithFlux(
+            data: SessionData,
+            durationMs: Long,
+            notificationCount: Int,
+            callCount: Int
+    ): Map<String, Any> {
+        // Try to use Rust implementation for HSI-compliant metrics
+        if (FluxBridge.isAvailable()) {
+            try {
+                // Convert events to synheart-flux JSON format
+                val fluxJson = convertEventsToFluxJson(
+                    sessionId = data.sessionId,
+                    deviceId = "android-device", // TODO: Get actual device ID
+                    timezone = java.util.TimeZone.getDefault().id,
+                    startTimeMs = data.startTime,
+                    endTimeMs = data.endTime,
+                    events = data.events
+                )
+
+                // Call Rust to compute HSI metrics
+                val hsiJson = FluxBridge.behaviorToHsi(fluxJson)
+                if (hsiJson != null) {
+                    val metrics = extractBehavioralMetricsFromHsi(hsiJson)
+                    if (metrics != null) {
+                        android.util.Log.d("BehaviorSDK", "Successfully computed metrics using synheart-flux")
+                        return metrics
+                    }
+                }
+                android.util.Log.w("BehaviorSDK", "Rust computation returned null, falling back to Kotlin")
+            } catch (e: Exception) {
+                android.util.Log.w("BehaviorSDK", "Rust computation failed, falling back to Kotlin: ${e.message}")
+            }
+        }
+
+        // Fall back to Kotlin implementation
+        return computeBehavioralMetrics(data, durationMs, notificationCount, callCount)
     }
 
     private fun computeBehavioralMetrics(

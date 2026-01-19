@@ -39,6 +39,8 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        // Include synheart-flux native libraries
+        main.jniLibs.srcDirs += 'src/main/jniLibs'
     }
 
     defaultConfig {
