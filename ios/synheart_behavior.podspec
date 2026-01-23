@@ -18,7 +18,7 @@ The Synheart Behavioral SDK collects digital behavioral signals from smartphones
   s.platform = :ios, '12.0'
 
   # Synheart Flux (Rust) XCFramework for HSI-compliant behavioral metrics
-  # The XCFramework should be placed at: ios/Frameworks/SynheartFlux.xcframework
+  # REQUIRED: The XCFramework must be placed at: ios/Frameworks/SynheartFlux.xcframework
   # Download from synheart-flux releases or build from source
   s.vendored_frameworks = 'Frameworks/SynheartFlux.xcframework'
   s.preserve_paths = 'Frameworks/SynheartFlux.xcframework'
@@ -27,8 +27,17 @@ The Synheart Behavioral SDK collects digital behavioral signals from smartphones
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-    # Enable linking with synheart-flux static library
-    'OTHER_LDFLAGS' => '-lsynheart_flux'
+    # Link synheart-flux static library from XCFramework
+    # Use -force_load to ensure all symbols are included from the static library
+    # For simulator, use the simulator slice; for device, use the device slice
+    'OTHER_LDFLAGS[sdk=iphonesimulator*]' => [
+      '-L$(PODS_TARGET_SRCROOT)/Frameworks/SynheartFlux.xcframework/ios-arm64_x86_64-simulator',
+      '-force_load $(PODS_TARGET_SRCROOT)/Frameworks/SynheartFlux.xcframework/ios-arm64_x86_64-simulator/libsynheart_flux.a'
+    ].join(' '),
+    'OTHER_LDFLAGS[sdk=iphoneos*]' => [
+      '-L$(PODS_TARGET_SRCROOT)/Frameworks/SynheartFlux.xcframework/ios-arm64',
+      '-force_load $(PODS_TARGET_SRCROOT)/Frameworks/SynheartFlux.xcframework/ios-arm64/libsynheart_flux.a'
+    ].join(' ')
   }
   s.swift_version = '5.0'
 end

@@ -16,7 +16,6 @@ import androidx.lifecycle.OnLifecycleEvent
 import androidx.lifecycle.ProcessLifecycleOwner
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.exp
 
 /**
  * Main BehaviorSDK class for collecting behavioral signals. Privacy-first: No text content, no PII
@@ -367,11 +366,19 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
         // Compute behavioral metrics from events
-        // Try to use Rust (synheart-flux) for HSI-compliant metrics, fall back to Kotlin
-        val behavioralMetrics = computeBehavioralMetricsWithFlux(data, duration, notificationCount, callCount)
+        // Use only Flux (Rust) calculations - native Kotlin calculations commented out
+        val (calculationMetrics, fluxMetrics, performanceInfo) =
+                computeBehavioralMetricsWithFlux(data, duration, notificationCount, callCount)
+
+        // Require Flux metrics - fail if not available
+        if (fluxMetrics == null) {
+            throw Exception("Flux is required but metrics are not available")
+        }
 
         // Compute typing session summary
-        val typingSessionSummary = computeTypingSessionSummary(data, duration)
+        // Native Kotlin typing summary calculation commented out - using Flux typing summary
+        // instead
+        // val typingSessionSummary = computeTypingSessionSummary(data, duration)
 
         // Collect motion data if enabled
         val motionData = motionSignalCollector.stopSession()
@@ -398,7 +405,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                         "total_events" to data.eventCount,
                                         "app_switch_count" to data.appSwitchCount
                                 ),
-                        "behavioral_metrics" to behavioralMetrics,
+                        "behavioral_metrics" to fluxMetrics!!, // Use Flux (Rust) results as primary
+                        // "behavioral_metrics_flux" removed - Flux is now the primary source
+                        "performance_info" to performanceInfo,
                         "notification_summary" to
                                 mapOf(
                                         "notification_count" to notificationCount,
@@ -417,11 +426,44 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 )
                 )
 
-        // Add typing session summary if available
+        // Add typing session summary from Flux (primary source)
         var summary = summaryBase
-        if (typingSessionSummary.isNotEmpty()) {
-            summary = summary + mapOf("typing_session_summary" to typingSessionSummary)
+        // Native typing summary commented out - using Flux typing summary instead
+        // if (typingSessionSummary.isNotEmpty()) {
+        //     summary = summary + mapOf("typing_session_summary" to typingSessionSummary)
+        // }
+
+        // Extract Flux typing session summary (now primary source)
+        android.util.Log.d("BehaviorSDK", "=== FLUX TYPING SUMMARY EXTRACTION ===")
+        android.util.Log.d("BehaviorSDK", "fluxMetrics is null: ${fluxMetrics == null}")
+        if (fluxMetrics != null) {
+            android.util.Log.d("BehaviorSDK", "Flux metrics keys: ${fluxMetrics.keys}")
+            val typingSummaryRaw = fluxMetrics["typing_session_summary"]
+            android.util.Log.d("BehaviorSDK", "typing_session_summary raw value: $typingSummaryRaw")
+            android.util.Log.d(
+                    "BehaviorSDK",
+                    "typing_session_summary type: ${typingSummaryRaw?.javaClass?.simpleName}"
+            )
         }
+        val fluxTypingSummary = fluxMetrics.get("typing_session_summary") as? Map<String, Any>
+        android.util.Log.d("BehaviorSDK", "fluxTypingSummary after cast: $fluxTypingSummary")
+        android.util.Log.d(
+                "BehaviorSDK",
+                "fluxTypingSummary is null: ${fluxTypingSummary == null}, isEmpty: ${fluxTypingSummary?.isEmpty()}"
+        )
+        if (fluxTypingSummary != null && fluxTypingSummary.isNotEmpty()) {
+            android.util.Log.d(
+                    "BehaviorSDK",
+                    "Adding Flux typing summary to session result with keys: ${fluxTypingSummary.keys}"
+            )
+            summary = summary + mapOf("typing_session_summary" to fluxTypingSummary)
+        } else {
+            android.util.Log.d(
+                    "BehaviorSDK",
+                    "Flux typing summary not available or empty - NOT adding to summary"
+            )
+        }
+        android.util.Log.d("BehaviorSDK", "=== END FLUX TYPING SUMMARY EXTRACTION ===")
 
         // Add motion data if available
         if (motionData.isNotEmpty()) {
@@ -472,887 +514,117 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     }
 
     /**
-     * Compute notification_load on 5-second windows and average the results. Each window
-     * calculates: notification_load = 1 - exp(-notification_rate / λ) where notification_rate =
-     * notification_count_in_window / window_duration_seconds
-     */
-    private fun computeNotificationLoadOnWindows(
-            events: List<BehaviorEvent>,
-            sessionStartTime: Long,
-            sessionDurationMs: Long,
-            lambda: Double
-    ): Double {
-        val windowSizeMs = 5000L // 5 seconds
-        val numWindows = (sessionDurationMs / windowSizeMs).toInt()
-
-        if (numWindows == 0) {
-            return 0.0
-        }
-
-        val windowLoads = mutableListOf<Double>()
-
-        // Process each 5-second window
-        for (windowIndex in 0 until numWindows) {
-            val windowStartMs = sessionStartTime + (windowIndex * windowSizeMs)
-            val windowEndMs = windowStartMs + windowSizeMs
-
-            // Count notifications in this window
-            var notificationCountInWindow = 0
-            for (event in events) {
-                if (event.eventType == "notification") {
-                    try {
-                        val eventTimeMs = Instant.parse(event.timestamp).toEpochMilli()
-                        if (eventTimeMs >= windowStartMs && eventTimeMs < windowEndMs) {
-                            notificationCountInWindow++
-                        }
-                    } catch (e: Exception) {
-                        // Skip invalid timestamps
-                    }
-                }
-            }
-
-            // Calculate notification rate for this window (notifications per second)
-            val windowDurationSeconds = windowSizeMs / 1000.0
-            val notificationRate =
-                    if (windowDurationSeconds > 0) {
-                        notificationCountInWindow / windowDurationSeconds
-                    } else {
-                        0.0
-                    }
-
-            // Calculate notification_load for this window
-            val windowLoad =
-                    if (notificationRate > 0) {
-                        1.0 - exp(-notificationRate / lambda)
-                    } else {
-                        0.0
-                    }
-
-            windowLoads.add(windowLoad)
-        }
-
-        // Average all window loads
-        return if (windowLoads.isNotEmpty()) {
-            windowLoads.average()
-        } else {
-            0.0
-        }
-    }
-
-    /**
-     * Compute task_switch_rate on 5-second windows and average the results. Each window calculates:
-     * task_switch_rate = 1 - exp(-task_switch_rate_raw / μ) where task_switch_rate_raw =
-     * app_switch_count_in_window / window_duration_seconds
-     */
-    private fun computeTaskSwitchRateOnWindows(
-            events: List<BehaviorEvent>,
-            sessionStartTime: Long,
-            sessionDurationMs: Long,
-            @Suppress("UNUSED_PARAMETER") totalAppSwitchCount: Int,
-            mu: Double
-    ): Double {
-        val windowSizeMs = 5000L // 5 seconds
-        val numWindows = (sessionDurationMs / windowSizeMs).toInt()
-
-        if (numWindows == 0) {
-            return 0.0
-        }
-
-        val windowRates = mutableListOf<Double>()
-        val windowDurationSeconds = windowSizeMs / 1000.0
-
-        // Process each 5-second window
-        for (windowIndex in 0 until numWindows) {
-            val windowStartMs = sessionStartTime + (windowIndex * windowSizeMs)
-            val windowEndMs = windowStartMs + windowSizeMs
-
-            // Count app_switch events in this window
-            var appSwitchCountInWindow = 0
-            for (event in events) {
-                if (event.eventType == "app_switch") {
-                    try {
-                        val eventTimeMs = Instant.parse(event.timestamp).toEpochMilli()
-                        if (eventTimeMs >= windowStartMs && eventTimeMs < windowEndMs) {
-                            appSwitchCountInWindow++
-                        }
-                    } catch (e: Exception) {
-                        // Skip invalid timestamps
-                    }
-                }
-            }
-
-            // Calculate task switch rate for this window (app switches per second)
-            val taskSwitchRateRaw =
-                    if (windowDurationSeconds > 0) {
-                        appSwitchCountInWindow / windowDurationSeconds
-                    } else {
-                        0.0
-                    }
-
-            // Calculate task_switch_rate for this window
-            val windowRate =
-                    if (taskSwitchRateRaw > 0) {
-                        1.0 - exp(-taskSwitchRateRaw / mu)
-                    } else {
-                        0.0
-                    }
-
-            windowRates.add(windowRate)
-        }
-
-        // Average all window rates
-        return if (windowRates.isNotEmpty()) {
-            windowRates.average()
-        } else {
-            0.0
-        }
-    }
-
-    /**
-     * Compute behavioral metrics for a window with custom lambda and mu values. This is used for
-     * 5-second window calculations.
-     */
-    private fun computeBehavioralMetricsForWindow(
-            data: SessionData,
-            durationMs: Long,
-            notificationCount: Int,
-            callCount: Int,
-            lambda: Double,
-            mu: Double
-    ): Map<String, Any> {
-        val durationSeconds = durationMs / 1000.0
-
-        // Step 1: Compute inter-event times for burstiness (Barabási's burstiness index)
-        val burstiness = computeBurstiness(data.events)
-
-        // Step 2: Compute notification_load = 1 - exp(-notification_rate / λ)
-        // Use window-specific lambda
-        val notificationRate =
-                if (durationSeconds > 0) {
-                    notificationCount / durationSeconds
-                } else 0.0
-        val notificationLoad =
-                if (notificationRate > 0) {
-                    1.0 - exp(-notificationRate / lambda)
-                } else 0.0
-
-        // Step 3: Compute task_switch_rate = 1 - exp(-task_switch_rate_raw / μ)
-        // Use window-specific mu
-        val taskSwitchRateRaw =
-                if (durationSeconds > 0) {
-                    data.appSwitchCount / durationSeconds
-                } else 0.0
-        val taskSwitchRate =
-                if (taskSwitchRateRaw > 0) {
-                    1.0 - exp(-taskSwitchRateRaw / mu)
-                } else 0.0
-
-        // Step 4: Compute task_switch_cost = session duration during app_switch
-        val taskSwitchCost =
-                if (data.appSwitchCount > 0) {
-                    (durationMs / data.appSwitchCount).toInt().coerceIn(0, 10000)
-                } else 0
-
-        // Step 5: Compute idle_ratio = total_idle_time / session_duration
-        val idleRatio = computeIdleRatio(data.events, durationMs)
-
-        // Step 6: Compute active_interaction_time = session_duration - idle_time - task_switch_cost
-        val totalIdleTimeMs = (idleRatio * durationMs).toLong()
-        val activeInteractionTimeMs = durationMs - totalIdleTimeMs - taskSwitchCost
-        val activeTimeRatio =
-                if (durationMs > 0) {
-                    (activeInteractionTimeMs.toDouble() / durationMs).coerceIn(0.0, 1.0)
-                } else 0.0
-
-        // Step 7: Compute fragmented_idle_ratio = number_of_idle_segments / session_duration
-        val fragmentedIdleRatio = computeFragmentedIdleRatio(data.events, durationMs)
-
-        // Step 8: Compute scroll_jitter_rate = direction_reversals / max(total_scroll_events - 1,
-        // 1)
-        val scrollJitterRate = computeScrollJitterRate(data.events)
-
-        // Step 9: Compute distraction_score = weighted combination
-        val w1 = 0.35
-        val w2 = 0.30
-        val w3 = 0.20
-        val w4 = 0.15
-        val behavioralDistractionScore =
-                (w1 * taskSwitchRate +
-                                w2 * notificationLoad +
-                                w3 * fragmentedIdleRatio +
-                                w4 * scrollJitterRate)
-                        .coerceIn(0.0, 1.0)
-
-        // Step 10: Compute focus_hint = 1 - distraction_score
-        val focusHint = 1.0 - behavioralDistractionScore
-
-        // Step 11: Compute interaction_intensity
-        val interruptionCount = notificationCount + callCount + data.appSwitchCount
-        val typingEvents = data.events.filter { it.eventType == "typing" }
-        val typingEventCount = typingEvents.size
-
-        val totalTypingDurationSeconds =
-                if (typingEvents.isNotEmpty()) {
-                    typingEvents
-                            .mapNotNull { event -> (event.metrics["duration"] as? Number)?.toInt() }
-                            .sum()
-                            .toDouble()
-                } else {
-                    0.0
-                }
-
-        val totalEventsExceptInterruptionsAndTyping =
-                data.eventCount - interruptionCount - typingEventCount
-
-        val interactionIntensity =
-                if (durationSeconds > 0) {
-                    val typingContribution = totalTypingDurationSeconds / 10.0
-                    ((totalEventsExceptInterruptionsAndTyping + typingContribution) /
-                                    durationSeconds)
-                            .coerceIn(0.0, Double.MAX_VALUE)
-                } else 0.0
-
-        // Step 12: Compute deep_focus_block (for 5-second windows, this will typically be empty)
-        val deepFocusBlocks =
-                computeDeepFocusBlocks(
-                        data.events,
-                        durationMs,
-                        data.startTime,
-                        data.endTime,
-                        notificationCount,
-                        callCount,
-                        data.appSwitchCount
-                )
-
-        return mapOf(
-                "interaction_intensity" to interactionIntensity,
-                "task_switch_rate" to taskSwitchRate,
-                "task_switch_cost" to taskSwitchCost,
-                "idle_time_ratio" to idleRatio,
-                "active_time_ratio" to activeTimeRatio,
-                "notification_load" to notificationLoad,
-                "burstiness" to burstiness,
-                "behavioral_distraction_score" to behavioralDistractionScore,
-                "focus_hint" to focusHint,
-                "fragmented_idle_ratio" to fragmentedIdleRatio,
-                "scroll_jitter_rate" to scrollJitterRate,
-                "deep_focus_blocks" to deepFocusBlocks
-        )
-    }
-
-    /**
-     * Compute behavioral metrics using synheart-flux (Rust) when available,
-     * falling back to Kotlin implementation if Rust library is not loaded.
+     * Compute behavioral metrics using Flux (Rust).
+     *
+     * Returns a Triple of (calculationMetrics, fluxMetrics, performanceInfo) where:
+     * - calculationMetrics: Empty map (not used, kept for API compatibility)
+     * - fluxMetrics: Results from Rust (synheart-flux), or null if Flux is unavailable/failed
+     * - performanceInfo: Contains execution time for Flux computation
      */
     private fun computeBehavioralMetricsWithFlux(
             data: SessionData,
             durationMs: Long,
             notificationCount: Int,
             callCount: Int
-    ): Map<String, Any> {
-        // Try to use Rust implementation for HSI-compliant metrics
-        if (FluxBridge.isAvailable()) {
+    ): Triple<Map<String, Any>, Map<String, Any>?, Map<String, Any>> {
+        // Native Kotlin calculation commented out - using only Flux
+        // val kotlinStartTime = System.nanoTime()
+        // val kotlinMetrics = computeBehavioralMetrics(data, durationMs, notificationCount,
+        // callCount)
+        // val kotlinTimeMs = (System.nanoTime() - kotlinStartTime) / 1_000_000
+        // android.util.Log.d(
+        //         "BehaviorSDK",
+        //         "Computed metrics using Kotlin (Calculation) - ${kotlinTimeMs}ms"
+        // )
+
+        // Compute Flux (Rust) - required, fail if unavailable
+        var fluxMetrics: Map<String, Any>? = null
+        var fluxTimeMs: Long = 0
+        val fluxAvailable = FluxBridge.isAvailable()
+
+        if (fluxAvailable) {
             try {
+                val fluxStartTime = System.nanoTime()
+
                 // Convert events to synheart-flux JSON format
-                val fluxJson = convertEventsToFluxJson(
-                    sessionId = data.sessionId,
-                    deviceId = "android-device", // TODO: Get actual device ID
-                    timezone = java.util.TimeZone.getDefault().id,
-                    startTimeMs = data.startTime,
-                    endTimeMs = data.endTime,
-                    events = data.events
+                val fluxJson =
+                        convertEventsToFluxJson(
+                                sessionId = data.sessionId,
+                                deviceId = "android-device", // TODO: Get actual device ID
+                                timezone = java.util.TimeZone.getDefault().id,
+                                startTimeMs = data.startTime,
+                                endTimeMs = data.endTime,
+                                events = data.events
+                        )
+
+                android.util.Log.d(
+                        "BehaviorSDK",
+                        "Calling FluxBridge.behaviorToHsi with JSON length: ${fluxJson.length}"
                 )
 
-                // Call Rust to compute HSI metrics
+                // DEBUG: Log the JSON being sent to Flux (first 1000 chars)
+                val jsonPreview =
+                        if (fluxJson.length > 1000) {
+                            fluxJson.substring(0, 1000) + "..."
+                        } else {
+                            fluxJson
+                        }
+                android.util.Log.d("BehaviorSDK", "Flux JSON preview: $jsonPreview")
+
                 val hsiJson = FluxBridge.behaviorToHsi(fluxJson)
                 if (hsiJson != null) {
+                    android.util.Log.d(
+                            "BehaviorSDK",
+                            "Got HSI JSON from Rust, length: ${hsiJson.length}"
+                    )
+
+                    // DEBUG: Log HSI JSON preview to see scroll jitter calculation
+                    val hsiPreview =
+                            if (hsiJson.length > 2000) {
+                                hsiJson.substring(0, 2000) + "..."
+                            } else {
+                                hsiJson
+                            }
+                    android.util.Log.d("BehaviorSDK", "HSI JSON preview: $hsiPreview")
                     val metrics = extractBehavioralMetricsFromHsi(hsiJson)
                     if (metrics != null) {
-                        android.util.Log.d("BehaviorSDK", "Successfully computed metrics using synheart-flux")
-                        return metrics
-                    }
-                }
-                android.util.Log.w("BehaviorSDK", "Rust computation returned null, falling back to Kotlin")
-            } catch (e: Exception) {
-                android.util.Log.w("BehaviorSDK", "Rust computation failed, falling back to Kotlin: ${e.message}")
-            }
-        }
-
-        // Fall back to Kotlin implementation
-        return computeBehavioralMetrics(data, durationMs, notificationCount, callCount)
-    }
-
-    private fun computeBehavioralMetrics(
-            data: SessionData,
-            durationMs: Long,
-            notificationCount: Int,
-            callCount: Int
-    ): Map<String, Any> {
-        val durationSeconds = durationMs / 1000.0
-
-        // Step 1: Compute inter-event times for burstiness (Barabási's burstiness index)
-        val burstiness = computeBurstiness(data.events)
-
-        // Step 2: Compute notification_load = 1 - exp(-notification_rate / λ)
-        // where notification_rate = notification_count / session_duration_seconds
-        // λ = 1/60 (sensitivity parameter)
-        val notificationRate =
-                if (durationSeconds > 0) {
-                    notificationCount / durationSeconds
-                } else 0.0
-        val lambda = 1.0 / 60.0
-        val notificationLoad =
-                if (notificationRate > 0) {
-                    1.0 - exp(-notificationRate / lambda)
-                } else 0.0
-
-        // Step 3: Compute task_switch_rate = 1 - exp(-task_switch_rate_raw / μ)
-        // where task_switch_rate_raw = app_switch_count / session_duration
-        // μ = 1/30 (task-switch tolerance)
-        val taskSwitchRateRaw =
-                if (durationSeconds > 0) {
-                    data.appSwitchCount / durationSeconds
-                } else 0.0
-        val mu = 1.0 / 30.0
-        val taskSwitchRate =
-                if (taskSwitchRateRaw > 0) {
-                    1.0 - exp(-taskSwitchRateRaw / mu)
-                } else 0.0
-
-        // Step 4: Compute task_switch_cost = session duration during app_switch
-        // Since we don't track individual app switch durations, estimate as average time per switch
-        val taskSwitchCost =
-                if (data.appSwitchCount > 0) {
-                    // Estimate: assume each app switch takes some time
-                    // This should ideally be tracked from actual app switch events
-                    (durationMs / data.appSwitchCount).toInt().coerceIn(0, 10000)
-                } else 0
-
-        // Step 5: Compute idle_ratio = total_idle_time / session_duration
-        // where total_idle_time = Σ Δtᵢ where Δtᵢ > idle_threshold (30 seconds)
-        val idleRatio = computeIdleRatio(data.events, durationMs)
-
-        // Step 6: Compute active_interaction_time = session_duration - idle_time - task_switch_cost
-        val totalIdleTimeMs = (idleRatio * durationMs).toLong()
-        val activeInteractionTimeMs = durationMs - totalIdleTimeMs - taskSwitchCost
-        val activeTimeRatio =
-                if (durationMs > 0) {
-                    (activeInteractionTimeMs.toDouble() / durationMs).coerceIn(0.0, 1.0)
-                } else 0.0
-
-        // Step 7: Compute fragmented_idle_ratio = number_of_idle_segments / session_duration
-        val fragmentedIdleRatio = computeFragmentedIdleRatio(data.events, durationMs)
-
-        // Step 8: Compute scroll_jitter_rate = direction_reversals / max(total_scroll_events - 1,
-        // 1)
-        val scrollJitterRate = computeScrollJitterRate(data.events)
-
-        // Step 9: Compute distraction_score = weighted combination
-        // w1=0.35, w2=0.30, w3=0.20, w4=0.15
-        val w1 = 0.35
-        val w2 = 0.30
-        val w3 = 0.20
-        val w4 = 0.15
-        val behavioralDistractionScore =
-                (w1 * taskSwitchRate +
-                                w2 * notificationLoad +
-                                w3 * fragmentedIdleRatio +
-                                w4 * scrollJitterRate)
-                        .coerceIn(0.0, 1.0)
-
-        // Step 10: Compute focus_hint = 1 - distraction_score
-        val focusHint = 1.0 - behavioralDistractionScore
-
-        // Step 11: Compute interaction_intensity = [total events except interruptions and typing +
-        // (Typing durations/10s)] / session_duration
-        // Interruptions = notifications, calls, app switches
-        // Typing events are handled separately: we add (total_typing_duration_seconds / 10) instead
-        // of counting typing events
-        val interruptionCount = notificationCount + callCount + data.appSwitchCount
-
-        // Count typing events to exclude them from event count
-        val typingEvents = data.events.filter { it.eventType == "typing" }
-        val typingEventCount = typingEvents.size
-
-        // Calculate total typing duration in seconds (sum of all typing session durations)
-        val totalTypingDurationSeconds =
-                if (typingEvents.isNotEmpty()) {
-                    typingEvents
-                            .mapNotNull { event -> (event.metrics["duration"] as? Number)?.toInt() }
-                            .sum()
-                            .toDouble()
-                } else {
-                    0.0
-                }
-
-        // Total events excluding interruptions and typing events
-        val totalEventsExceptInterruptionsAndTyping =
-                data.eventCount - interruptionCount - typingEventCount
-
-        // Interaction intensity = [non-interruption non-typing events + (typing_duration/10)] /
-        // session_duration
-        val interactionIntensity =
-                if (durationSeconds > 0) {
-                    val typingContribution = totalTypingDurationSeconds / 10.0
-                    ((totalEventsExceptInterruptionsAndTyping + typingContribution) /
-                                    durationSeconds)
-                            .coerceIn(0.0, Double.MAX_VALUE)
-                } else 0.0
-
-        // Step 12: Compute deep_focus_block = continuous app engagement ≥ 120s without
-        // idle, app switch, notification or call event
-        val deepFocusBlocks =
-                computeDeepFocusBlocks(
-                        data.events,
-                        durationMs,
-                        data.startTime,
-                        data.endTime,
-                        notificationCount,
-                        callCount,
-                        data.appSwitchCount
-                )
-
-        return mapOf(
-                "interaction_intensity" to interactionIntensity,
-                "task_switch_rate" to taskSwitchRate,
-                "task_switch_cost" to taskSwitchCost,
-                "idle_time_ratio" to idleRatio,
-                "active_time_ratio" to activeTimeRatio,
-                "notification_load" to notificationLoad,
-                "burstiness" to burstiness,
-                "behavioral_distraction_score" to behavioralDistractionScore,
-                "focus_hint" to focusHint,
-                "fragmented_idle_ratio" to fragmentedIdleRatio,
-                "scroll_jitter_rate" to scrollJitterRate,
-                "deep_focus_blocks" to deepFocusBlocks
-        )
-    }
-
-    private fun computeIdleRatio(events: List<BehaviorEvent>, durationMs: Long): Double {
-        if (events.size < 2) return 0.0
-
-        val idleThresholdMs = 30000L // 30 seconds
-        var totalIdleTime = 0L
-        for (i in 1 until events.size) {
-            try {
-                val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
-                val currTime = Instant.parse(events[i].timestamp).toEpochMilli()
-                val gap = currTime - prevTime
-                if (gap > idleThresholdMs) {
-                    totalIdleTime += gap - idleThresholdMs
-                }
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-
-        return if (durationMs > 0) {
-            (totalIdleTime.toDouble() / durationMs).coerceIn(0.0, 1.0)
-        } else 0.0
-    }
-
-    private fun computeFragmentedIdleRatio(events: List<BehaviorEvent>, durationMs: Long): Double {
-        if (events.size < 2) return 0.0
-
-        val idleThresholdMs = 30000L // 30 seconds
-        var numberOfIdleSegments = 0
-        for (i in 1 until events.size) {
-            try {
-                val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
-                val currTime = Instant.parse(events[i].timestamp).toEpochMilli()
-                val gap = currTime - prevTime
-                if (gap > idleThresholdMs) {
-                    numberOfIdleSegments++
-                }
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-
-        val durationSeconds = durationMs / 1000.0
-        return if (durationSeconds > 0) {
-            (numberOfIdleSegments / durationSeconds).coerceIn(0.0, Double.MAX_VALUE)
-        } else 0.0
-    }
-
-    private fun computeScrollJitterRate(events: List<BehaviorEvent>): Double {
-        val scrollEvents = events.filter { it.eventType == "scroll" }
-        if (scrollEvents.size < 2) return 0.0
-
-        var directionReversals = 0
-        var previousDirection: String? = null
-        for (event in scrollEvents) {
-            val currentDirection = event.metrics["direction"] as? String
-            if (currentDirection != null &&
-                            previousDirection != null &&
-                            currentDirection != previousDirection
-            ) {
-                directionReversals++
-            }
-            previousDirection = currentDirection
-        }
-
-        val totalScrollEvents = scrollEvents.size
-        return if (totalScrollEvents > 1) {
-            (directionReversals.toDouble() / (totalScrollEvents - 1)).coerceIn(0.0, 1.0)
-        } else 0.0
-    }
-
-    private fun computeBurstiness(events: List<BehaviorEvent>): Double {
-        if (events.size < 2) {
-            return 0.0
-        }
-
-        // Step 1: Calculate all inter-event gaps
-        val gaps = mutableListOf<Pair<Long, Boolean>>() // (gap, involvesTyping)
-        for (i in 1 until events.size) {
-            try {
-                val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
-                val currTime = Instant.parse(events[i].timestamp).toEpochMilli()
-                val gap = currTime - prevTime
-
-                // Check if this gap involves typing (either previous or current event is typing)
-                val prevIsTyping = events[i - 1].eventType == "typing"
-                val currIsTyping = events[i].eventType == "typing"
-                val involvesTyping = prevIsTyping || currIsTyping
-
-                gaps.add(Pair(gap, involvesTyping))
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-
-        if (gaps.isEmpty()) {
-            return 0.0
-        }
-
-        // Step 2: Find max gap excluding gaps that involve typing
-        val maxNonTypingGap =
-                gaps
-                        .filter { !it.second } // Only non-typing gaps
-                        .map { it.first } // Get gap values
-                        .maxOrNull()
-                        ?: 0L
-
-        // Step 3: Cap typing gaps at max non-typing gap
-        // If maxNonTypingGap is 0 (no non-typing events), use the gaps as-is
-        val cappedGaps =
-                if (maxNonTypingGap > 0) {
-                    gaps.map { (gap, involvesTyping) ->
-                        if (involvesTyping) {
-                            // Cap typing gaps at max non-typing gap
-                            minOf(gap, maxNonTypingGap)
-                        } else {
-                            gap
-                        }
-                    }
-                } else {
-                    // If all events are typing or no non-typing gaps found, use gaps as-is
-                    gaps.map { it.first }
-                }
-
-        // Step 4: Calculate mean and standard deviation using capped gaps
-        val mean = cappedGaps.average()
-
-        // If mean is 0, all intervals are 0 (events at same time) - return 0
-        if (mean == 0.0) {
-            return 0.0
-        }
-
-        val variance = cappedGaps.map { (it - mean) * (it - mean) }.average()
-        val stdDev = kotlin.math.sqrt(variance)
-
-        // If stdDev is 0, all intervals are identical (perfectly regular) - burstiness should be 0
-        if (stdDev == 0.0) {
-            return 0.0
-        }
-
-        // Step 5: Apply Barabási's burstiness formula: (σ - μ)/(σ + μ) remapped to [0,1]
-        val burstinessRaw = (stdDev - mean) / (stdDev + mean)
-        val burstiness = ((burstinessRaw + 1.0) / 2.0).coerceIn(0.0, 1.0)
-
-        return burstiness
-    }
-
-    private fun computeDeepFocusBlocks(
-            events: List<BehaviorEvent>,
-            durationMs: Long, // Unused but kept for API consistency
-            sessionStartTime: Long,
-            sessionEndTime: Long,
-            notificationCount: Int, // Unused but kept for API consistency
-            callCount: Int, // Unused but kept for API consistency
-            appSwitchCount: Int // Unused but kept for API consistency
-    ): List<Map<String, Any>> {
-        // Deep focus block = continuous app engagement ≥ 120s without
-        // idle, app switch, notification or call event
-        val deepFocusBlocks = mutableListOf<Map<String, Any>>()
-        val minBlockDurationMs = 120000L // 120 seconds
-
-        if (events.size < 2) return deepFocusBlocks
-
-        val idleThresholdMs = 30000L // 30 seconds
-        var blockStart: Long? = null
-        var blockEnd: Long? = null
-        var lastBlockEndTime: Long? = null // Track when last block ended
-
-        // Filter out interruption events (notifications, calls, app switches)
-        val interruptionEventTypes = setOf("notification", "call", "app_switch")
-
-        for (i in 0 until events.size) {
-            try {
-                val event = events[i]
-                val currTime = Instant.parse(event.timestamp).toEpochMilli()
-
-                // Check if this is an interruption event
-                val isInterruption = interruptionEventTypes.contains(event.eventType)
-
-                // Check gap from previous event
-                val gap =
-                        if (i > 0) {
-                            val prevTime = Instant.parse(events[i - 1].timestamp).toEpochMilli()
-                            currTime - prevTime
-                        } else {
-                            // First event - check gap from session start
-                            currTime - sessionStartTime
-                        }
-
-                // If we hit an interruption or idle gap, end current block
-                if (isInterruption || gap > idleThresholdMs) {
-                    if (blockStart != null && blockEnd != null) {
-                        val blockDuration = blockEnd - blockStart
-                        if (blockDuration >= minBlockDurationMs) {
-                            deepFocusBlocks.add(
-                                    mapOf(
-                                            "start_at" to
-                                                    Instant.ofEpochMilli(blockStart).toString(),
-                                            "end_at" to Instant.ofEpochMilli(blockEnd).toString(),
-                                            "duration_ms" to blockDuration.toInt()
-                                    )
-                            )
-                        }
-                    }
-                    lastBlockEndTime = if (isInterruption) currTime else blockEnd
-                    blockStart = null
-                    blockEnd = null
-                } else {
-                    // Continue or start a focus block
-                    if (blockStart == null) {
-                        // Starting a new block - check if we should start from session start or
-                        // previous block end
-                        if (i == 0 && gap <= idleThresholdMs) {
-                            // First event and close to session start - start from session start
-                            blockStart = sessionStartTime
-                        } else if (lastBlockEndTime != null &&
-                                        (currTime - lastBlockEndTime) <= idleThresholdMs
-                        ) {
-                            // Close to previous block end - start from previous block end
-                            blockStart = lastBlockEndTime
-                        } else {
-                            // Start from current event time
-                            blockStart = currTime
-                        }
-                    }
-                    blockEnd = currTime
-                }
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-
-        // Check final block - include time from last event to session end if recent
-        if (blockStart != null && blockEnd != null) {
-            // Get the last event time in the block
-            val lastEventTime = blockEnd
-
-            // If last event was recent (within idle threshold of session end), extend to session
-            // end
-            // This ensures we count engagement time even if no events were generated at the end
-            val timeFromLastEventToSessionEnd = sessionEndTime - lastEventTime
-            val finalBlockEnd =
-                    if (timeFromLastEventToSessionEnd <= idleThresholdMs) {
-                        // Last event was recent, include time up to session end
-                        sessionEndTime
-                    } else {
-                        // Last event was too long ago, use event timestamp
-                        blockEnd
-                    }
-
-            val blockDuration = finalBlockEnd - blockStart
-            if (blockDuration >= minBlockDurationMs) {
-                deepFocusBlocks.add(
-                        mapOf(
-                                "start_at" to Instant.ofEpochMilli(blockStart).toString(),
-                                "end_at" to Instant.ofEpochMilli(finalBlockEnd).toString(),
-                                "duration_ms" to blockDuration.toInt()
+                        fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
+                        fluxMetrics = metrics
+                        android.util.Log.d(
+                                "BehaviorSDK",
+                                "Successfully computed metrics using synheart-flux (Flux) - ${fluxTimeMs}ms"
                         )
-                )
+                    } else {
+                        fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
+                        android.util.Log.w("BehaviorSDK", "Failed to extract metrics from HSI JSON")
+                    }
+                } else {
+                    fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
+                    android.util.Log.w(
+                            "BehaviorSDK",
+                            "Rust computation returned null (took ${fluxTimeMs}ms)"
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("BehaviorSDK", "Flux computation failed: ${e.message}")
+                // Don't throw - just log the error and continue with Calculation results
             }
+        } else {
+            android.util.Log.d("BehaviorSDK", "Flux is not available - skipping Flux computation")
         }
 
-        return deepFocusBlocks
-    }
-
-    private fun computeTypingSessionSummary(data: SessionData, durationMs: Long): Map<String, Any> {
-        // Extract all typing events
-        val typingEvents = data.events.filter { it.eventType == "typing" }
-
-        if (typingEvents.isEmpty()) {
-            return mapOf(
-                    "typing_session_count" to 0,
-                    "average_keystrokes_per_session" to 0.0,
-                    "average_typing_session_duration" to 0.0,
-                    "average_typing_speed" to 0.0,
-                    "average_typing_gap" to 0.0,
-                    "average_inter_tap_interval" to 0.0,
-                    "typing_cadence_stability" to 0.0,
-                    "burstiness_of_typing" to 0.0,
-                    "total_typing_duration" to 0,
-                    "active_typing_ratio" to 0.0,
-                    "typing_contribution_to_interaction_intensity" to 0.0,
-                    "deep_typing_blocks" to 0,
-                    "typing_fragmentation" to 0.0,
-                    "typing_metrics" to emptyList<Map<String, Any>>()
+        // Build performance info with Flux execution time only
+        val performanceInfo = mutableMapOf<String, Any>()
+        if (fluxMetrics != null) {
+            performanceInfo["flux_execution_time_ms"] = fluxTimeMs
+            android.util.Log.i(
+                    "BehaviorSDK",
+                    "Computed metrics using Flux (Rust) - ${fluxTimeMs}ms"
             )
         }
 
-        // Each typing event represents one typing session (from Flutter BehaviorTextField)
-        val typingSessionCount = typingEvents.size
-
-        // Extract metrics from each typing event
-        val sessionMetrics =
-                typingEvents.map { event ->
-                    mapOf(
-                            "typing_tap_count" to
-                                    ((event.metrics["typing_tap_count"] as? Number)?.toInt() ?: 0),
-                            "typing_speed" to
-                                    ((event.metrics["typing_speed"] as? Number)?.toDouble() ?: 0.0),
-                            "duration" to ((event.metrics["duration"] as? Number)?.toInt() ?: 0),
-                            "mean_inter_tap_interval_ms" to
-                                    ((event.metrics["mean_inter_tap_interval_ms"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0),
-                            "typing_cadence_stability" to
-                                    ((event.metrics["typing_cadence_stability"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0),
-                            "typing_gap_ratio" to
-                                    ((event.metrics["typing_gap_ratio"] as? Number)?.toDouble()
-                                            ?: 0.0),
-                            "typing_burstiness" to
-                                    ((event.metrics["typing_burstiness"] as? Number)?.toDouble()
-                                            ?: 0.0),
-                            "deep_typing" to (event.metrics["deep_typing"] as? Boolean ?: false),
-                            "start_at" to (event.metrics["start_at"] as? String ?: ""),
-                            "end_at" to (event.metrics["end_at"] as? String ?: "")
-                    )
-                }
-
-        // Aggregate metrics
-        val averageKeystrokesPerSession =
-                sessionMetrics.map { it["typing_tap_count"] as Int }.average()
-        val averageTypingSessionDuration = sessionMetrics.map { it["duration"] as Int }.average()
-        val averageTypingSpeed = sessionMetrics.map { it["typing_speed"] as Double }.average()
-
-        // Calculate average typing gap from mean_inter_tap_interval_ms
-        val averageTypingGap =
-                sessionMetrics.map { it["mean_inter_tap_interval_ms"] as Double }.average()
-
-        // Calculate average inter-tap interval across all sessions
-        // This is the average of mean_inter_tap_interval_ms for each session
-        val averageInterTapInterval =
-                if (sessionMetrics.isNotEmpty()) {
-                    sessionMetrics.map { it["mean_inter_tap_interval_ms"] as Double }.average()
-                } else {
-                    0.0
-                }
-
-        // Average cadence stability across sessions
-        val typingCadenceStability =
-                sessionMetrics.map { it["typing_cadence_stability"] as Double }.average()
-
-        // Average burstiness across sessions
-        val burstinessOfTyping = sessionMetrics.map { it["typing_burstiness"] as Double }.average()
-
-        // Total typing duration (sum of all session durations)
-        val totalTypingDuration = sessionMetrics.map { it["duration"] as Int }.sum()
-
-        // Active typing ratio = total typing duration / session duration
-        val activeTypingRatio =
-                if (durationMs > 0) {
-                    (totalTypingDuration * 1000.0 / durationMs).coerceIn(0.0, 1.0)
-                } else 0.0
-
-        // Typing contribution to interaction intensity = typing events / total events
-        val typingContributionToInteractionIntensity =
-                if (data.eventCount > 0) {
-                    typingEvents.size.toDouble() / data.eventCount
-                } else 0.0
-
-        // Deep typing blocks = sessions with deep_typing == true
-        val deepTypingBlocks = sessionMetrics.count { it["deep_typing"] as Boolean }
-
-        // Typing fragmentation = average gap ratio across sessions
-        val typingFragmentation = sessionMetrics.map { it["typing_gap_ratio"] as Double }.average()
-
-        // Individual typing session metrics (for detailed breakdown)
-        val individualMetrics =
-                typingEvents.map { event ->
-                    mapOf(
-                            "start_at" to (event.metrics["start_at"] as? String ?: ""),
-                            "end_at" to (event.metrics["end_at"] as? String ?: ""),
-                            "duration" to ((event.metrics["duration"] as? Number)?.toInt() ?: 0),
-                            "deep_typing" to (event.metrics["deep_typing"] as? Boolean ?: false),
-                            "typing_tap_count" to
-                                    ((event.metrics["typing_tap_count"] as? Number)?.toInt() ?: 0),
-                            "typing_speed" to
-                                    ((event.metrics["typing_speed"] as? Number)?.toDouble() ?: 0.0),
-                            "mean_inter_tap_interval_ms" to
-                                    ((event.metrics["mean_inter_tap_interval_ms"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0),
-                            "typing_cadence_variability" to
-                                    ((event.metrics["typing_cadence_variability"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0),
-                            "typing_cadence_stability" to
-                                    ((event.metrics["typing_cadence_stability"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0),
-                            "typing_gap_count" to
-                                    ((event.metrics["typing_gap_count"] as? Number)?.toInt() ?: 0),
-                            "typing_gap_ratio" to
-                                    ((event.metrics["typing_gap_ratio"] as? Number)?.toDouble()
-                                            ?: 0.0),
-                            "typing_burstiness" to
-                                    ((event.metrics["typing_burstiness"] as? Number)?.toDouble()
-                                            ?: 0.0),
-                            "typing_activity_ratio" to
-                                    ((event.metrics["typing_activity_ratio"] as? Number)?.toDouble()
-                                            ?: 0.0),
-                            "typing_interaction_intensity" to
-                                    ((event.metrics["typing_interaction_intensity"] as? Number)
-                                            ?.toDouble()
-                                            ?: 0.0)
-                    )
-                }
-
-        return mapOf(
-                "typing_session_count" to typingSessionCount,
-                "average_keystrokes_per_session" to averageKeystrokesPerSession,
-                "average_typing_session_duration" to averageTypingSessionDuration,
-                "average_typing_speed" to averageTypingSpeed,
-                "average_typing_gap" to averageTypingGap,
-                "average_inter_tap_interval" to averageInterTapInterval,
-                "typing_cadence_stability" to typingCadenceStability,
-                "burstiness_of_typing" to burstinessOfTyping,
-                "total_typing_duration" to totalTypingDuration,
-                "active_typing_ratio" to activeTypingRatio,
-                "typing_contribution_to_interaction_intensity" to
-                        typingContributionToInteractionIntensity,
-                "deep_typing_blocks" to deepTypingBlocks,
-                "typing_fragmentation" to typingFragmentation,
-                "typing_metrics" to individualMetrics
-        )
+        // Return empty map for calculationMetrics (not used anymore)
+        return Triple(mapOf<String, Any>(), fluxMetrics, performanceInfo)
     }
 
     fun getCurrentStats(): BehaviorStats {
@@ -1441,12 +713,42 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
-        // Compute behavioral metrics
-        val behavioralMetrics =
-                computeBehavioralMetrics(tempData, duration, notificationCount, callCount)
+        // Compute behavioral metrics using Flux (Rust) - same as endSession()
+        val (_, fluxMetrics, _) =
+                computeBehavioralMetricsWithFlux(tempData, duration, notificationCount, callCount)
 
-        // Compute typing session summary
-        val typingSessionSummary = computeTypingSessionSummary(tempData, duration)
+        // Require Flux metrics - fail if not available
+        if (fluxMetrics == null) {
+            throw Exception(
+                    "Flux is required but metrics are not available for time range calculation"
+            )
+        }
+
+        // Extract behavioral metrics from Flux results
+        val behavioralMetrics =
+                fluxMetrics.filterKeys { key ->
+                    key != "typing_session_summary" // Separate typing summary
+                }
+
+        // Extract typing session summary from Flux results
+        val typingSessionSummary =
+                fluxMetrics["typing_session_summary"] as? Map<String, Any>
+                        ?: mapOf(
+                                "typing_session_count" to 0,
+                                "average_keystrokes_per_session" to 0.0,
+                                "average_typing_session_duration" to 0.0,
+                                "average_typing_speed" to 0.0,
+                                "average_typing_gap" to 0.0,
+                                "average_inter_tap_interval" to 0.0,
+                                "typing_cadence_stability" to 0.0,
+                                "burstiness_of_typing" to 0.0,
+                                "total_typing_duration" to 0,
+                                "active_typing_ratio" to 0.0,
+                                "typing_contribution_to_interaction_intensity" to 0.0,
+                                "deep_typing_blocks" to 0,
+                                "typing_fragmentation" to 0.0,
+                                "typing_metrics" to emptyList<Map<String, Any>>()
+                        )
 
         // Get motion data for the time range
         val allMotionData: List<MotionSignalCollector.MotionDataPoint> =

@@ -296,6 +296,7 @@ class SynheartBehavior {
               systemState: summary.systemState,
               typingSessionSummary: summary.typingSessionSummary,
               motionData: summary.motionData,
+              performanceInfo: summary.performanceInfo,
             );
           } catch (e) {
             print('ERROR: Failed to run motion state inference: $e');

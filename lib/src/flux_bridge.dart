@@ -13,8 +13,10 @@ import 'package:ffi/ffi.dart';
 typedef FluxBehaviorToHsiC = Pointer<Utf8> Function(Pointer<Utf8> json);
 typedef FluxBehaviorToHsiDart = Pointer<Utf8> Function(Pointer<Utf8> json);
 
-typedef FluxBehaviorProcessorNewC = Pointer<Void> Function(Int32 baselineWindow);
-typedef FluxBehaviorProcessorNewDart = Pointer<Void> Function(int baselineWindow);
+typedef FluxBehaviorProcessorNewC = Pointer<Void> Function(
+    Int32 baselineWindow);
+typedef FluxBehaviorProcessorNewDart = Pointer<Void> Function(
+    int baselineWindow);
 
 typedef FluxBehaviorProcessorFreeC = Void Function(Pointer<Void> processor);
 typedef FluxBehaviorProcessorFreeDart = void Function(Pointer<Void> processor);
@@ -254,7 +256,8 @@ class FluxBehaviorProcessor {
 
     final jsonPtr = baselinesJson.toNativeUtf8();
     try {
-      final result = _bridge._processorLoadBaselines?.call(_processor!, jsonPtr);
+      final result =
+          _bridge._processorLoadBaselines?.call(_processor!, jsonPtr);
       return result == 0;
     } finally {
       calloc.free(jsonPtr);
@@ -286,23 +289,34 @@ String convertSessionToFluxJson({
   required List<Map<String, dynamic>> events,
 }) {
   final fluxEvents = events.map((event) {
-    final eventType = event['event_type'] as String? ?? event['type'] as String?;
+    final eventType =
+        event['event_type'] as String? ?? event['type'] as String?;
     final timestamp = event['timestamp'];
     final metrics = event['metrics'] as Map<String, dynamic>? ??
-                    event['payload'] as Map<String, dynamic>? ?? {};
+        event['payload'] as Map<String, dynamic>? ??
+        {};
 
     final fluxEvent = <String, dynamic>{
-      'timestamp': timestamp is String ? timestamp : DateTime.fromMillisecondsSinceEpoch(timestamp as int).toUtc().toIso8601String(),
+      'timestamp': timestamp is String
+          ? timestamp
+          : DateTime.fromMillisecondsSinceEpoch(timestamp as int)
+              .toUtc()
+              .toIso8601String(),
       'event_type': eventType,
     };
 
     // Map event-specific data
     switch (eventType) {
       case 'scroll':
-        fluxEvent['scroll'] = {
+        final scroll = <String, dynamic>{
           'velocity': metrics['velocity'] ?? 0.0,
           'direction': metrics['direction'] ?? 'down',
         };
+        // Include direction_reversal if available (Flux accepts this field)
+        if (metrics.containsKey('direction_reversal')) {
+          scroll['direction_reversal'] = metrics['direction_reversal'] ?? false;
+        }
+        fluxEvent['scroll'] = scroll;
         break;
       case 'tap':
         fluxEvent['tap'] = {
@@ -317,20 +331,75 @@ String convertSessionToFluxJson({
         };
         break;
       case 'notification':
-        fluxEvent['interruption'] = {
+        final interruption = <String, dynamic>{
           'action': metrics['action'] ?? 'ignored',
         };
+        // Include source_app_id if available (Flux accepts this field)
+        if (metrics.containsKey('source_app_id')) {
+          interruption['source_app_id'] = metrics['source_app_id'];
+        }
+        fluxEvent['interruption'] = interruption;
         break;
       case 'call':
-        fluxEvent['interruption'] = {
+        final interruption = <String, dynamic>{
           'action': metrics['action'] ?? 'ignored',
         };
+        // Include source_app_id if available (Flux accepts this field)
+        if (metrics.containsKey('source_app_id')) {
+          interruption['source_app_id'] = metrics['source_app_id'];
+        }
+        fluxEvent['interruption'] = interruption;
         break;
       case 'typing':
-        fluxEvent['typing'] = {
+        final typing = <String, dynamic>{
           'typing_speed_cpm': metrics['typing_speed'] ?? 0.0,
           'cadence_stability': metrics['typing_cadence_stability'] ?? 0.0,
         };
+        // Include duration_sec if available (Flux accepts this field)
+        if (metrics.containsKey('duration')) {
+          final duration = metrics['duration'];
+          typing['duration_sec'] = duration is num
+              ? duration.toDouble()
+              : (double.tryParse(duration.toString()) ?? 0.0);
+        }
+        // Include pause_count if available (Flux accepts this field)
+        // Map typing_gap_count to pause_count as they represent the same concept
+        final pauseCount =
+            metrics['pause_count'] ?? metrics['typing_gap_count'];
+        if (pauseCount != null) {
+          typing['pause_count'] = pauseCount is num
+              ? pauseCount.toInt()
+              : (int.tryParse(pauseCount.toString()) ?? 0);
+        }
+        // Include detailed typing metrics that Flux uses for aggregation
+        // These are needed for Flux to calculate average_keystrokes_per_session,
+        // average_typing_gap, average_inter_tap_interval, and burstiness_of_typing
+        if (metrics.containsKey('typing_tap_count')) {
+          final tapCount = metrics['typing_tap_count'];
+          typing['typing_tap_count'] = tapCount is num
+              ? tapCount.toInt()
+              : (int.tryParse(tapCount.toString()) ?? 0);
+        }
+        if (metrics.containsKey('mean_inter_tap_interval_ms')) {
+          final iti = metrics['mean_inter_tap_interval_ms'];
+          typing['mean_inter_tap_interval_ms'] = iti is num
+              ? iti.toDouble()
+              : (double.tryParse(iti.toString()) ?? 0.0);
+        }
+        if (metrics.containsKey('typing_burstiness')) {
+          final burst = metrics['typing_burstiness'];
+          typing['typing_burstiness'] = burst is num
+              ? burst.toDouble()
+              : (double.tryParse(burst.toString()) ?? 0.0);
+        }
+        // Include session boundaries if available
+        if (metrics.containsKey('start_at')) {
+          typing['start_at'] = metrics['start_at'].toString();
+        }
+        if (metrics.containsKey('end_at')) {
+          typing['end_at'] = metrics['end_at'].toString();
+        }
+        fluxEvent['typing'] = typing;
         break;
       case 'app_switch':
         fluxEvent['app_switch'] = {
@@ -359,47 +428,74 @@ String convertSessionToFluxJson({
 ///
 /// This helper extracts the behavioral metrics in a format compatible
 /// with the existing SDK output format.
+/// Uses HSI 1.0 format: axes.behavior.readings array
 Map<String, dynamic>? extractBehavioralMetrics(Map<String, dynamic>? hsi) {
   if (hsi == null) return null;
 
   try {
-    final behaviorWindows = hsi['behavior_windows'] as List<dynamic>?;
-    if (behaviorWindows == null || behaviorWindows.isEmpty) return null;
+    // HSI 1.0 format: axes.behavior.readings array
+    final axes = hsi['axes'] as Map<String, dynamic>?;
+    if (axes == null) return null;
 
-    final window = behaviorWindows.first as Map<String, dynamic>;
-    final behavior = window['behavior'] as Map<String, dynamic>?;
-    final baseline = window['baseline'] as Map<String, dynamic>?;
-    final eventSummary = window['event_summary'] as Map<String, dynamic>?;
-
+    final behavior = axes['behavior'] as Map<String, dynamic>?;
     if (behavior == null) return null;
 
-    return {
-      'interaction_intensity': behavior['interaction_intensity'] ?? 0.0,
-      'task_switch_rate': behavior['task_switch_rate'] ?? 0.0,
-      'task_switch_cost': 0, // Not directly in HSI, computed separately if needed
-      'idle_time_ratio': behavior['idle_ratio'] ?? 0.0,
-      'active_time_ratio': 1.0 - (behavior['idle_ratio'] ?? 0.0),
-      'notification_load': behavior['notification_load'] ?? 0.0,
-      'burstiness': behavior['burstiness'] ?? 0.0,
-      'behavioral_distraction_score': behavior['distraction_score'] ?? 0.0,
-      'focus_hint': behavior['focus_hint'] ?? 0.0,
-      'fragmented_idle_ratio': behavior['fragmented_idle_ratio'] ?? 0.0,
-      'scroll_jitter_rate': behavior['scroll_jitter_rate'] ?? 0.0,
-      'deep_focus_blocks': behavior['deep_focus_blocks'] ?? 0,
-      // Baseline info
-      'baseline_distraction': baseline?['distraction'],
-      'baseline_focus': baseline?['focus'],
-      'distraction_deviation_pct': baseline?['distraction_deviation_pct'],
-      'sessions_in_baseline': baseline?['sessions_in_baseline'] ?? 0,
-      // Event summary
-      'total_events': eventSummary?['total_events'] ?? 0,
-      'scroll_events': eventSummary?['scroll_events'] ?? 0,
-      'tap_events': eventSummary?['tap_events'] ?? 0,
-      'app_switches': eventSummary?['app_switches'] ?? 0,
-      'notifications': eventSummary?['notifications'] ?? 0,
+    final readings = behavior['readings'] as List<dynamic>?;
+    if (readings == null || readings.isEmpty) return null;
+
+    // Extract metrics from axis readings
+    final metricsMap = <String, double>{};
+    for (final reading in readings) {
+      if (reading is Map<String, dynamic>) {
+        final axis = reading['axis'] as String? ?? '';
+        final score = reading['score'];
+        if (score is num) {
+          metricsMap[axis] = score.toDouble();
+        }
+      }
+    }
+
+    // Extract meta information
+    final meta = hsi['meta'] as Map<String, dynamic>?;
+
+    // Build result map with SDK-expected field names
+    final result = <String, dynamic>{
+      'interaction_intensity': metricsMap['interaction_intensity'] ?? 0.0,
+      'task_switch_rate': metricsMap['task_switch_rate'] ?? 0.0,
+      'task_switch_cost': 0, // Not in HSI format, keep as 0
+      'idle_time_ratio': metricsMap['idle_ratio'] ?? 0.0,
+      'active_time_ratio': 1.0 - (metricsMap['idle_ratio'] ?? 0.0),
+      'notification_load': metricsMap['notification_load'] ?? 0.0,
+      'burstiness': metricsMap['burstiness'] ?? 0.0,
+      'behavioral_distraction_score': metricsMap['distraction'] ?? 0.0,
+      'focus_hint': metricsMap['focus'] ?? 0.0,
+      'fragmented_idle_ratio': metricsMap['fragmented_idle_ratio'] ?? 0.0,
+      'scroll_jitter_rate': metricsMap['scroll_jitter_rate'] ?? 0.0,
+      'deep_focus_blocks': (meta?['deep_focus_blocks'] as num?)?.toInt() ?? 0,
+      'sessions_in_baseline':
+          (meta?['sessions_in_baseline'] as num?)?.toInt() ?? 0,
     };
+
+    // Add baseline info from meta if available
+    if (meta != null) {
+      final baselineDistraction = meta['baseline_distraction'];
+      if (baselineDistraction is num) {
+        result['baseline_distraction'] = baselineDistraction.toDouble();
+      }
+      final baselineFocus = meta['baseline_focus'];
+      if (baselineFocus is num) {
+        result['baseline_focus'] = baselineFocus.toDouble();
+      }
+      final distractionDeviationPct = meta['distraction_deviation_pct'];
+      if (distractionDeviationPct is num) {
+        result['distraction_deviation_pct'] =
+            distractionDeviationPct.toDouble();
+      }
+    }
+
+    return result;
   } catch (e) {
     print('FluxBridge: Failed to extract behavioral metrics: $e');
-    return null;
+    rethrow;
   }
 }

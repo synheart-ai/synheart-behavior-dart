@@ -4,7 +4,13 @@ This document explains how to integrate synheart-flux (Rust library) with synhea
 
 ## Overview
 
-The synheart-behavior SDK now supports using synheart-flux for computing behavioral metrics. When synheart-flux is available, the SDK will use the Rust implementation for:
+The synheart-behavior SDK **requires** synheart-flux for computing behavioral metrics. All behavioral and typing metric calculations are performed by the Rust library, ensuring:
+- HSI compliance
+- Cross-platform consistency (same Rust code on iOS and Android)
+- Baseline support across sessions
+- Deterministic, reproducible results
+
+The SDK uses synheart-flux for computing:
 - Distraction score
 - Focus hint
 - Burstiness (Barabási formula)
@@ -13,9 +19,10 @@ The synheart-behavior SDK now supports using synheart-flux for computing behavio
 - Scroll jitter rate
 - Deep focus blocks
 - Interaction intensity
-- And more HSI-compliant metrics
+- Typing session metrics (typing session count, average keystrokes, typing speed, etc.)
+- And all other HSI-compliant metrics
 
-If synheart-flux is not available, the SDK falls back to native Kotlin/Swift implementations.
+**Note**: synheart-flux is **required**. If the library is not available, session ending will fail with an error.
 
 ## Benefits
 
@@ -143,16 +150,14 @@ Check console for:
 BehaviorSDK: Successfully computed metrics using synheart-flux
 ```
 
-If you see "falling back to Kotlin/Swift" messages, the Rust library is not loaded correctly.
+If you see "Flux is required but metrics are not available" errors, the Rust library is not loaded correctly and the SDK will fail.
 
-## Fallback Behavior
+## Required Integration
 
-When synheart-flux is not available:
-- Android: Falls back to Kotlin implementation
-- iOS: Falls back to Swift implementation
-- Dart: Returns null from FFI calls
-
-The native implementations produce compatible metrics, but may have minor numerical differences from the HSI-compliant Rust implementation.
+**synheart-flux is mandatory** for the SDK to function. The SDK will fail to end sessions if Flux is not available. This ensures:
+- Consistent HSI-compliant metrics across all platforms
+- No fallback to legacy native implementations
+- Guaranteed cross-platform metric consistency
 
 ## Troubleshooting
 
