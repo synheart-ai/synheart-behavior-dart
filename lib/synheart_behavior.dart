@@ -10,3 +10,4 @@ export 'src/models/behavior_stats.dart';
 // export 'src/behavior_window_aggregator.dart';
 export 'src/behavior_gesture_detector.dart';
 export 'src/motion_state_inference.dart';
+export 'src/flux_bridge.dart';

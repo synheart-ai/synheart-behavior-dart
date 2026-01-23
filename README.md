@@ -26,7 +26,7 @@ These behavioral signals power downstream systems such as:
 - **Motion State Prediction**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using ML model inference
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
-- **Platform Support**: iOS and Android with native implementations
+- **Platform Support**: iOS and Android with Flux (Rust) integration for HSI-compliant metrics
 
 ## 📦 Installation
 
@@ -34,7 +34,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.1.3
+  synheart_behavior: ^0.1.4
 ```
 
 Then run:
@@ -45,7 +45,9 @@ flutter pub get
 
 ### Platform Setup
 
-**No additional configuration required!** The SDK works out of the box. For optional features (notifications and calls), see the [Permissions](#permissions) section below.
+**synheart-flux is required!** The SDK requires synheart-flux (Rust library) to be integrated. See [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md) for detailed integration instructions.
+
+For optional features (notifications and calls), see the [Permissions](#permissions) section below.
 
 ## 🎯 Quick Start
 
@@ -364,7 +366,7 @@ if (summary.motionState != null) {
 
 ### On-Demand Metrics Calculation
 
-Calculate behavioral metrics for a custom time range within a session:
+Calculate behavioral metrics for a custom time range within a session. All metrics are computed using synheart-flux (Rust) for HSI compliance:
 
 ```dart
 // Calculate metrics for a specific time range
@@ -374,7 +376,7 @@ final metrics = await behavior.calculateMetricsForTimeRange(
   sessionId: 'SESS-1767688063415',     // Optional: session ID (uses current if not provided)
 );
 
-// Access the calculated metrics
+// Access the calculated metrics (all computed by Flux)
 print('Total events: ${metrics['activity_summary']['total_events']}');
 print('App switches: ${metrics['activity_summary']['app_switch_count']}');
 print('Interaction intensity: ${metrics['behavioral_metrics']['interaction_intensity']}');
@@ -387,7 +389,7 @@ if (metrics['motion_state'] != null) {
 }
 ```
 
-**Note**: The time range must be within the session's start and end times. The SDK validates this automatically and will throw an error if the range is out of bounds.
+**Note**: The time range must be within the session's start and end times. The SDK validates this automatically and will throw an error if the range is out of bounds. All behavioral metrics are computed using synheart-flux for HSI compliance and cross-platform consistency.
 
 ### Current Statistics
 
@@ -414,7 +416,7 @@ if (behavior.isInitialized) {
 
 ### Core Behavioral Metrics
 
-Session-level outputs include:
+Session-level outputs include (all computed by synheart-flux for HSI compliance):
 
 - `interactionIntensity`: Overall interaction rate and engagement
 - `distractionScore`: Behavioral proxy for distraction (0-1)
@@ -427,7 +429,7 @@ Session-level outputs include:
 - `notificationLoad`: Notification pressure and response patterns
 - `scrollJitterRate`: Scroll pattern irregularity
 
-All metrics are bounded, normalized, and numerically stable.
+All metrics are bounded, normalized, numerically stable, and computed using synheart-flux (Rust) for cross-platform consistency and HSI compliance.
 
 ## ⚙️ Additional Features
 
@@ -504,7 +506,7 @@ The Synheart SDK is designed around privacy-by-design and data minimization prin
 
 ### Processing & Storage
 
-✅ **On-device computation by default**: Behavioral features and metrics are computed locally on the device whenever possible, minimizing data exposure.
+✅ **On-device computation by default**: Behavioral features and metrics are computed locally on the device using synheart-flux (Rust), ensuring HSI compliance and cross-platform consistency while minimizing data exposure.
 
 ✅ **Ephemeral data handling**: Raw interaction events are processed in-memory and are not persisted in long-term storage unless explicitly configured for research or debugging purposes.
 
@@ -546,7 +548,7 @@ The SDK is designed for continuous background operation with minimal resource im
 **Solutions**:
 
 - Ensure you're calling `WidgetsFlutterBinding.ensureInitialized()` before `runApp()` if initializing in `main()`
-- Check that native platform code is properly integrated (should be automatic)
+- Check that synheart-flux libraries are properly integrated (see [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md))
 - Verify Flutter version meets requirements (>=3.10.0)
 
 ### No Events Being Collected
@@ -578,6 +580,8 @@ The SDK is designed for continuous background operation with minimal resource im
 
 - Ensure the session was properly started
 - Check that the SDK is still initialized
+- Verify synheart-flux is properly integrated and loaded (check logs for "Flux is required but metrics are not available" errors)
+- Ensure synheart-flux libraries are present in the app bundle (see [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md))
 - Verify native platform channel is working (check logs)
 - Try ending the session with a timeout wrapper
 
@@ -651,6 +655,7 @@ Israel Goytom
 - [Synheart Focus](https://github.com/synheart-ai/synheart-focus-dart) - Cognitive concentration inference
 - [Synheart Emotion](https://github.com/synheart-ai/synheart-emotion-dart) - Physiological emotion inference from biosignals
 - [Synheart Behavior (Parent)](https://github.com/synheart-ai/synheart-behavior) - Multi-platform SDK specification
+- [Synheart Flux](https://github.com/synheart-ai/synheart-flux) - Rust library for HSI-compliant behavioral metrics computation (required dependency)
 
 ## ⚖️ Patent Pending Notice
 
