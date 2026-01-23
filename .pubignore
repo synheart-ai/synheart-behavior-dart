@@ -2,3 +2,8 @@
 android/.gradle/
 example/android/.gradle/
 
+# Android build artifacts (should not be published)
+android/build/reports/
+android/.cxx/
+android/build/intermediates/
+
