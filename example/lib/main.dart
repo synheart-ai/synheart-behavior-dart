@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
@@ -242,7 +243,6 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
       print('Session ended successfully. Summary: ${summary.sessionId}');
       final sessionEvents = List<BehaviorEvent>.from(_sessionEvents);
       print('Session events count: ${sessionEvents.length}');
-
       setState(() {
         _currentSession = null;
         _isSessionActive = false;
@@ -763,6 +763,56 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Performance Comparison Card
+            if (widget.summary.performanceInfo != null)
+              Card(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.speed,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Performance',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onPrimaryContainer,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (widget.summary
+                              .performanceInfo!['flux_execution_time_ms'] !=
+                          null)
+                        _buildInfoRow(
+                          'Execution Time',
+                          '${widget.summary.performanceInfo!['flux_execution_time_ms'] as num? ?? 0} ms',
+                        )
+                      else
+                        _buildInfoRow(
+                          'Execution Time',
+                          'Not available',
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (widget.summary.performanceInfo != null)
+              const SizedBox(height: 16),
             // Session Info Card
             Card(
               child: Padding(

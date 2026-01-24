@@ -39,10 +39,29 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        // Include synheart-flux native libraries
+        main.jniLibs.srcDirs += 'src/main/jniLibs'
     }
 
     defaultConfig {
         minSdk 21
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.18.1"
+        }
+    }
+
+    packagingOptions {
+        // Ensure both libraries are included
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }
 

@@ -177,6 +177,27 @@ class DeepFocusBlock {
   }
 }
 
+/// Helper function to parse deep_focus_blocks from JSON.
+/// Handles both cases: List<dynamic> (from Flux) and int (for backward compatibility).
+List<DeepFocusBlock> _parseDeepFocusBlocks(dynamic value) {
+  if (value == null) return [];
+
+  // If it's a list, parse as DeepFocusBlock objects (from Flux)
+  if (value is List) {
+    return value
+        .map(
+            (e) => DeepFocusBlock.fromJson(Map<String, dynamic>.from(e as Map)))
+        .toList();
+  }
+
+  // If it's an int (for backward compatibility), return empty list
+  if (value is int) {
+    return [];
+  }
+
+  return [];
+}
+
 /// Behavioral metrics for the session.
 class BehavioralMetrics {
   final double interactionIntensity;
@@ -238,11 +259,7 @@ class BehavioralMetrics {
       fragmentedIdleRatio:
           (json['fragmented_idle_ratio'] as num?)?.toDouble() ?? 0.0,
       scrollJitterRate: (json['scroll_jitter_rate'] as num?)?.toDouble() ?? 0.0,
-      deepFocusBlocks: (json['deep_focus_blocks'] as List<dynamic>?)
-              ?.map((e) =>
-                  DeepFocusBlock.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList() ??
-          [],
+      deepFocusBlocks: _parseDeepFocusBlocks(json['deep_focus_blocks']),
     );
   }
 }
@@ -450,6 +467,34 @@ class TypingSessionSummary {
       };
 
   factory TypingSessionSummary.fromJson(Map<String, dynamic> json) {
+    // Parse typing_metrics with error handling
+    List<TypingMetrics> individualTypingSessions = [];
+    try {
+      if (json['typing_metrics'] != null) {
+        final metricsList = json['typing_metrics'] as List<dynamic>;
+        print(
+            'DEBUG TypingSessionSummary.fromJson: parsing ${metricsList.length} typing metrics');
+        individualTypingSessions = metricsList.map((e) {
+          try {
+            return TypingMetrics.fromJson(Map<String, dynamic>.from(e as Map));
+          } catch (e, stackTrace) {
+            print('ERROR parsing individual TypingMetrics: $e');
+            print('Stack trace: $stackTrace');
+            print('Raw metric value: $e');
+            rethrow;
+          }
+        }).toList();
+        print(
+            'DEBUG TypingSessionSummary.fromJson: successfully parsed ${individualTypingSessions.length} typing metrics');
+      }
+    } catch (e, stackTrace) {
+      print('ERROR parsing typing_metrics array: $e');
+      print('Stack trace: $stackTrace');
+      print('Raw typing_metrics value: ${json['typing_metrics']}');
+      // Continue with empty list instead of failing completely
+      individualTypingSessions = [];
+    }
+
     return TypingSessionSummary(
       typingSessionCount: (json['typing_session_count'] as num?)?.toInt() ?? 0,
       averageKeystrokesPerSession:
@@ -476,12 +521,7 @@ class TypingSessionSummary {
       deepTypingBlocks: (json['deep_typing_blocks'] as num?)?.toInt() ?? 0,
       typingFragmentation:
           (json['typing_fragmentation'] as num?)?.toDouble() ?? 0.0,
-      individualTypingSessions: json['typing_metrics'] != null
-          ? (json['typing_metrics'] as List<dynamic>)
-              .map((e) =>
-                  TypingMetrics.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList()
-          : [],
+      individualTypingSessions: individualTypingSessions,
     );
   }
 }
@@ -521,7 +561,7 @@ class BehaviorSessionSummary {
   /// Activity summary.
   final ActivitySummary activitySummary;
 
-  /// Behavioral metrics.
+  /// Behavioral metrics (from Flux/Rust).
   final BehavioralMetrics behavioralMetrics;
 
   /// Notification summary.
@@ -530,11 +570,14 @@ class BehaviorSessionSummary {
   /// System state.
   final SystemState systemState;
 
-  /// Typing session summary.
+  /// Typing session summary (from Flux/Rust).
   final TypingSessionSummary? typingSessionSummary;
 
   /// Raw motion data (accelerometer and gyroscope arrays per timestamp).
   final List<MotionDataPoint>? motionData;
+
+  /// Performance information (Flux execution time).
+  final Map<String, dynamic>? performanceInfo;
 
   BehaviorSessionSummary({
     required this.sessionId,
@@ -553,6 +596,7 @@ class BehaviorSessionSummary {
     required this.systemState,
     this.typingSessionSummary,
     this.motionData,
+    this.performanceInfo,
   });
 
   /// Convert to the new session behavior format.
@@ -575,10 +619,11 @@ class BehaviorSessionSummary {
           'typing_session_summary': typingSessionSummary!.toJson(),
         if (motionData != null)
           'motion_data': motionData!.map((point) => point.toJson()).toList(),
+        if (performanceInfo != null) 'performance_info': performanceInfo,
       };
 
   factory BehaviorSessionSummary.fromJson(Map<String, dynamic> json) {
-    return BehaviorSessionSummary(
+    final summary = BehaviorSessionSummary(
       sessionId: json['session_id'] as String,
       startAt: json['start_at'] as String? ??
           DateTime.fromMillisecondsSinceEpoch(
@@ -620,7 +665,12 @@ class BehaviorSessionSummary {
                   MotionDataPoint.fromJson(Map<String, dynamic>.from(e as Map)))
               .toList()
           : null,
+      performanceInfo: json['performance_info'] != null
+          ? Map<String, dynamic>.from(json['performance_info'] as Map)
+          : null,
     );
+
+    return summary;
   }
 
   /// Get session duration in milliseconds.

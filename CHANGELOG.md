@@ -88,3 +88,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Enhanced session data management to support on-demand metric calculations for ended sessions
 - Improved motion data handling with proper type conversions for nested maps
+
+## [0.1.4] - 2026-01-23
+
+### Changed
+
+- **Flux Integration**: All behavioral and typing metric calculations now exclusively use synheart-flux (Rust library)
+- Removed native Kotlin/Swift calculation implementations for behavioral metrics
+- Removed redundant comparison fields (`behavioralMetricsFlux`, `typingSessionSummaryFlux`) from Dart models
+- Updated data flow: All metrics now come directly from Flux, ensuring HSI compliance and cross-platform consistency
+- Simplified codebase by removing ~1000+ lines of native calculation code
+
+### Removed
+
+- Native calculation functions: `computeBehavioralMetrics()`, `computeTypingSessionSummary()`, `computeIdleRatio()`, `computeFragmentedIdleRatio()`, `computeScrollJitterRate()`, `computeBurstiness()`, `computeDeepFocusBlocks()`, and related helper functions
+
+### Breaking Changes
+
+- **Flux is now required**: The SDK requires synheart-flux libraries to be present. If Flux is unavailable, session ending will fail with an error instead of falling back to native calculations
+- Removed `behavioralMetricsFlux` and `typingSessionSummaryFlux` fields from `BehaviorSessionSummary` model (use `behavioralMetrics` and `typingSessionSummary` instead, which now contain Flux data)
+
+### Technical Details
+
+- All behavioral metrics (interaction intensity, distraction score, focus hint, deep focus blocks, etc.) are computed by Flux
+- All typing session metrics (typing session count, average keystrokes, typing speed, etc.) are computed by Flux
+- Performance information now only tracks Flux execution time
+- Native code now only handles event collection, session management, and Flux integration

@@ -435,15 +435,15 @@ class MotionFeatureExtractor {
     
     private func entropy(_ data: [Double]) -> Double {
         if data.isEmpty { return 0.0 }
-        let min = data.min() ?? 0.0
-        let max = data.max() ?? 1.0
-        let range = max - min
+        let minValue = data.min() ?? 0.0
+        let maxValue = data.max() ?? 1.0
+        let range = maxValue - minValue
         if range == 0.0 { return 0.0 }
         
-        let normalized = data.map { ($0 - min) / range }
+        let normalizedData = data.map { ($0 - minValue) / range }
         let bins = 10
         var histogram = Array(repeating: 0, count: bins)
-        normalized.forEach { value in
+        for value in normalizedData {
             let bin = min(Int(value * Double(bins)), bins - 1)
             histogram[bin] += 1
         }
@@ -550,7 +550,7 @@ class MotionFeatureExtractor {
         var realp = [Double](repeating: 0.0, count: paddedSize / 2)
         var imagp = [Double](repeating: 0.0, count: paddedSize / 2)
         
-        var splitComplex = DSPSplitComplexD(realp: &realp, imagp: &imagp)
+        var splitComplex = DSPDoubleSplitComplex(realp: &realp, imagp: &imagp)
         
         padded.withUnsafeBufferPointer { buffer in
             var input = buffer.baseAddress!
