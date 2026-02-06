@@ -427,8 +427,10 @@ class TypingSessionSummary {
       typingContributionToInteractionIntensity; // Typing's contribution to overall intensity
   final int deepTypingBlocks; // Number of deep typing blocks
   final double typingFragmentation; // Measure of typing fragmentation
-  final double clipboardActivityRate; // From Flux: (copy + paste + cut) / (typing_taps + copy + paste + cut)
-  final double correctionRate; // From Flux: (backspace + delete) / (typing_tap_count + backspace + delete)
+  final double
+      clipboardActivityRate; // From Flux: (copy + paste + cut) / (typing_taps + copy + paste + cut)
+  final double
+      correctionRate; // From Flux: (backspace + delete) / (typing_tap_count + backspace + delete)
   final List<TypingMetrics>
       individualTypingSessions; // List of individual typing sessions
 
@@ -529,8 +531,7 @@ class TypingSessionSummary {
           (json['typing_fragmentation'] as num?)?.toDouble() ?? 0.0,
       clipboardActivityRate:
           (json['clipboard_activity_rate'] as num?)?.toDouble() ?? 0.0,
-      correctionRate:
-          (json['correction_rate'] as num?)?.toDouble() ?? 0.0,
+      correctionRate: (json['correction_rate'] as num?)?.toDouble() ?? 0.0,
       individualTypingSessions: individualTypingSessions,
     );
   }
