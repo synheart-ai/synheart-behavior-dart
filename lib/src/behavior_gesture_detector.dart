@@ -561,11 +561,15 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
 /// A TextField wrapper for behavior tracking.
 /// Tracks typing sessions from keyboard open (focus gain) to keyboard close (focus loss).
 /// Calculates all typing metrics and emits a typing event when the session ends.
+/// Also detects paste operations in the text field.
 class BehaviorTextField extends StatefulWidget {
   final TextEditingController? controller;
   final InputDecoration? decoration;
   final int? maxLines;
   final Function(BehaviorEvent)? onTypingEvent;
+  final Function(BehaviorEvent)? onClipboardEvent;
+  final SynheartBehavior? behavior; // Optional SDK instance to auto-send events
+  final String? sessionId; // Optional session ID
 
   const BehaviorTextField({
     super.key,
@@ -573,6 +577,9 @@ class BehaviorTextField extends StatefulWidget {
     this.decoration,
     this.maxLines,
     this.onTypingEvent,
+    this.onClipboardEvent,
+    this.behavior,
+    this.sessionId,
   });
 
   @override
@@ -595,6 +602,31 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
   int _previousLength = 0;
   List<int> _interKeyLatencies =
       []; // Store latencies in milliseconds (only actual intervals, no 0 for first keystroke)
+  int _backspaceCount = 0; // Track number of backspace/delete operations
+  int _pasteCount = 0;
+  int _copyCount = 0;
+  int _cutCount = 0;
+
+  // Paste detection
+  static const int _pasteDetectionThreshold =
+      2; // Characters added to detect paste (lowered from 5 to catch shorter pastes)
+  static const int _pasteEventDebounceMs =
+      500; // Don't emit another paste event within 500ms
+  DateTime? _lastTextChangeTime;
+  DateTime? _lastPasteEventTime; // Track when we last emitted a paste event
+  int? _lastPasteLength; // Track the text length when we last detected a paste
+
+  // Copy/Cut detection
+  TextSelection? _lastSelection; // Track last text selection to detect cut/copy
+  DateTime? _lastSelectionTime; // Track when selection was made
+  DateTime? _lastCopyEventTime; // Track when we last emitted a copy event
+  DateTime? _lastCutEventTime; // Track when we last emitted a cut event
+  static const int _clipboardEventDebounceMs =
+      1000; // Don't emit another clipboard event within 1000ms (increased from 500ms)
+  bool _hasProcessedSelectionForClipboard =
+      false; // Track if we've already processed this selection for clipboard
+  String?
+      _lastClipboardEventId; // Track the last clipboard event ID to prevent exact duplicates
 
   // Static list to track all active BehaviorTextField instances for session/app lifecycle handling
   static final List<_BehaviorTextFieldState> _activeInstances = [];
@@ -614,6 +646,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     _controller = widget.controller ?? TextEditingController();
     _focusNode = FocusNode();
     _controller.addListener(_onTextChanged);
+    _controller.addListener(_onSelectionChanged);
     _focusNode.addListener(_onFocusChanged);
     _previousLength = _controller.text.length;
     // Register this instance for session/app lifecycle handling
@@ -630,6 +663,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
       _controller.dispose();
     } else {
       _controller.removeListener(_onTextChanged);
+      _controller.removeListener(_onSelectionChanged);
     }
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
@@ -647,8 +681,11 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
 
   void _onFocusChanged() {
     if (_focusNode.hasFocus) {
-      // Keyboard opened - start typing session
-      _startTypingSession();
+      // Keyboard opened - start typing session only if not already started
+      // This prevents resetting the session if focus is briefly lost during clipboard operations
+      if (_sessionStartTime == null) {
+        _startTypingSession();
+      }
     } else {
       // Keyboard closed or focus lost - end typing session immediately
       _endTypingSession();
@@ -660,14 +697,29 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     _sessionStartTime = DateTime.now();
     _lastKeystrokeTime = null;
     _interKeyLatencies.clear();
+    _backspaceCount = 0; // Reset backspace count for new session
+    _pasteCount = 0;
+    _copyCount = 0;
+    _cutCount = 0;
     _previousLength = _controller.text.length;
+    _hasProcessedSelectionForClipboard =
+        false; // Reset clipboard processing flag
   }
 
   void _endTypingSession() {
-    // If we have an active session with keystrokes, emit the event
-    if (_sessionStartTime != null && _interKeyLatencies.isNotEmpty) {
-      // Emit typing session event
-      _emitTypingSessionEvent();
+    // If we have an active session, emit the event (even if only 1 keystroke)
+    if (_sessionStartTime != null) {
+      // Check if we have at least one keystroke (either intervals or first keystroke)
+      // If _interKeyLatencies is empty, we might still have typed 1 character
+      if (_interKeyLatencies.isNotEmpty || _lastKeystrokeTime != null) {
+        print(
+            '⌨️ [END SESSION] Ending typing session - intervals: ${_interKeyLatencies.length}, backspaces: $_backspaceCount');
+        // Emit typing session event
+        _emitTypingSessionEvent();
+      } else {
+        print(
+            '⌨️ [END SESSION] No keystrokes detected, skipping event emission');
+      }
     }
 
     // Always reset session state when focus is lost
@@ -685,30 +737,308 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
 
     final currentLength = _controller.text.length;
     final now = DateTime.now();
+    final lengthDiff = currentLength - _previousLength;
+
+    // DEBUG: Log all text changes
+    print(
+        '📝 [TEXT CHANGE] previousLength: $_previousLength, currentLength: $currentLength, lengthDiff: $lengthDiff');
+    print(
+        '📝 [TEXT CHANGE] _interKeyLatencies.length: ${_interKeyLatencies.length}, _backspaceCount: $_backspaceCount');
+    print(
+        '📝 [TEXT CHANGE] _sessionStartTime: $_sessionStartTime, _lastKeystrokeTime: $_lastKeystrokeTime');
 
     // Only detect when text is added (not deleted)
     if (currentLength > _previousLength) {
-      // Start session if not already started
-      if (_sessionStartTime == null) {
-        _startTypingSession();
+      // Detect paste: large text insertion in short time
+      final timeSinceLastChange = _lastTextChangeTime != null
+          ? now.difference(_lastTextChangeTime!).inMilliseconds
+          : null;
+
+      // Debug logging for paste detection
+      print(
+          '📋 BehaviorTextField: Text changed - lengthDiff: $lengthDiff, timeSinceLastChange: $timeSinceLastChange ms, threshold: $_pasteDetectionThreshold');
+
+      // Paste detection: if 2+ characters added, consider it a paste
+      // This distinguishes paste from normal typing (which typically adds 1 char at a time)
+      if (lengthDiff >= _pasteDetectionThreshold) {
+        // Check if we recently emitted a paste event for the same text length (prevent duplicates)
+        final isDuplicatePaste =
+            _lastPasteLength != null && currentLength == _lastPasteLength;
+
+        // Also check time-based debounce
+        final timeSinceLastPaste = _lastPasteEventTime != null
+            ? now.difference(_lastPasteEventTime!).inMilliseconds
+            : null;
+
+        // Create a unique event ID for this paste operation
+        final pasteEventId =
+            'paste_${currentLength}_${now.millisecondsSinceEpoch}';
+
+        if (!isDuplicatePaste &&
+            (timeSinceLastPaste == null ||
+                timeSinceLastPaste >= _pasteEventDebounceMs) &&
+            _lastClipboardEventId != pasteEventId) {
+          // This looks like a paste operation and we haven't emitted one for this text length
+          _emitPasteEvent();
+          _lastPasteEventTime = now;
+          _lastPasteLength =
+              currentLength; // Track the length when we detected paste
+          _lastClipboardEventId =
+              pasteEventId; // Track this event to prevent duplicates
+          // Don't count paste as typing - but keep the session alive
+          // Just update last keystroke time so paste doesn't create a gap in typing metrics
+          // This allows typing to continue after paste without breaking the session
+          if (_sessionStartTime == null) {
+            _startTypingSession();
+          }
+          // Update last keystroke time to prevent paste from creating a large gap
+          // but don't reset the session - keep all typing data intact
+          _lastKeystrokeTime = now;
+        }
+      } else {
+        // Normal typing - track as before
+        // Start session if not already started
+        if (_sessionStartTime == null) {
+          _startTypingSession();
+        }
+
+        // Calculate inter-key latency
+        // Only store actual intervals (not 0 for first keystroke)
+        if (_lastKeystrokeTime != null) {
+          final latency = now.difference(_lastKeystrokeTime!).inMilliseconds;
+          _interKeyLatencies.add(latency);
+          print(
+              '⌨️ [TYPING] Keystroke detected - latency: ${latency}ms, total intervals: ${_interKeyLatencies.length}');
+        } else {
+          // First keystroke: don't store interval, but log it
+          print('⌨️ [TYPING] First keystroke detected (no interval yet)');
+        }
+        // First keystroke: don't store anything (no previous keystroke to measure interval)
+
+        _lastKeystrokeTime = now;
       }
 
-      // Calculate inter-key latency
-      // Only store actual intervals (not 0 for first keystroke)
-      if (_lastKeystrokeTime != null) {
-        final latency = now.difference(_lastKeystrokeTime!).inMilliseconds;
-        _interKeyLatencies.add(latency);
-      }
-      // First keystroke: don't store anything (no previous keystroke to measure interval)
+      _lastTextChangeTime = now;
+    } else if (currentLength < _previousLength) {
+      // Text was deleted (backspace/delete/cut)
+      final deletedChars = _previousLength - currentLength;
 
-      _lastKeystrokeTime = now;
+      // Heuristic cut detection: if there was a selection and text was deleted, it's likely a cut
+      // Check if we had a selection recently (even if it's now cleared, we track it)
+      // We need to check BEFORE the selection was cleared, so we look at _lastSelection
+      // BUT only if we haven't already processed this selection for a clipboard operation
+      final hadValidSelection = _lastSelection != null &&
+          _lastSelection!.isValid &&
+          _lastSelection!.start != _lastSelection!.end;
+
+      // Track if we detected a cut in this deletion - if so, don't count as backspace
+      bool cutDetected = false;
+
+      if (hadValidSelection && !_hasProcessedSelectionForClipboard) {
+        // There was a selection, and text was deleted - likely a cut operation
+        // Check debounce to prevent duplicate events
+        final timeSinceLastCut = _lastCutEventTime != null
+            ? now.difference(_lastCutEventTime!).inMilliseconds
+            : null;
+
+        // Create a unique event ID for this cut operation
+        final cutEventId = 'cut_${deletedChars}_${now.millisecondsSinceEpoch}';
+
+        if (timeSinceLastCut == null ||
+            timeSinceLastCut >= _clipboardEventDebounceMs) {
+          if (_lastClipboardEventId != cutEventId) {
+            _emitCutEvent();
+            _lastCutEventTime = now;
+            _lastClipboardEventId =
+                cutEventId; // Track this event to prevent duplicates
+            // Mark that we've processed this selection to prevent copy detection from firing
+            _hasProcessedSelectionForClipboard = true;
+            cutDetected = true; // Mark that we detected a cut
+            _lastSelection = null; // Clear selection after cut
+            _lastSelectionTime = null; // Clear selection time
+          } else {
+            _hasProcessedSelectionForClipboard = true;
+            cutDetected = true; // Already processed as cut
+            _lastSelection = null;
+            _lastSelectionTime = null;
+          }
+        } else {
+          _hasProcessedSelectionForClipboard = true; // Still mark as processed
+          cutDetected = true; // Debounced, but still a cut
+          _lastSelection = null; // Still clear selection
+          _lastSelectionTime = null;
+        }
+      }
+
+      // Only count as backspace if it wasn't a cut
+      if (!cutDetected) {
+        // No selection or invalid selection - treat as backspace/delete
+        _backspaceCount += deletedChars;
+        print(
+            '⌫ [BACKSPACE] Backspace detected - deleted: $deletedChars chars, total backspaces: $_backspaceCount');
+        print(
+            '⌫ [BACKSPACE] _previousLength: $_previousLength, currentLength: $currentLength');
+        print(
+            '⌫ [BACKSPACE] _interKeyLatencies.length: ${_interKeyLatencies.length}');
+      } else {
+        print(
+            '⌫ [BACKSPACE] Skipping backspace count - this was a cut operation (deleted: $deletedChars chars)');
+      }
     }
 
     _previousLength = currentLength;
   }
 
+  void _onSelectionChanged() {
+    final currentSelection = _controller.selection;
+    final now = DateTime.now();
+
+    // Detect copy: if there was a valid selection and now it's cleared (no selection or collapsed)
+    // BUT only if we haven't already processed this selection for a clipboard operation (cut/copy)
+    if (_lastSelection != null &&
+        _lastSelection!.isValid &&
+        _lastSelection!.start != _lastSelection!.end &&
+        !_hasProcessedSelectionForClipboard) {
+      // There was a valid selection
+      if (!currentSelection.isValid ||
+          currentSelection.start == currentSelection.end) {
+        // Selection was cleared - this might be a copy operation
+        // Check timing: if selection was held for at least 100ms, it's likely a copy
+        // (very short selections are usually accidental)
+        // Check debounce to prevent duplicate copy events
+        final timeSinceLastCopy = _lastCopyEventTime != null
+            ? now.difference(_lastCopyEventTime!).inMilliseconds
+            : null;
+
+        // Create a unique event ID for this copy operation based on selection
+        final selectionKey = _lastSelection!.start.toString() +
+            '_' +
+            _lastSelection!.end.toString();
+        final copyEventId =
+            'copy_${selectionKey}_${now.millisecondsSinceEpoch}';
+
+        if (timeSinceLastCopy == null ||
+            timeSinceLastCopy >= _clipboardEventDebounceMs) {
+          if (_lastClipboardEventId != copyEventId) {
+            if (_lastSelectionTime != null) {
+              final timeSinceSelection =
+                  now.difference(_lastSelectionTime!).inMilliseconds;
+              if (timeSinceSelection >= 100) {
+                // Reduced threshold for better detection
+                // Selection was held and then cleared - likely a copy
+                _emitCopyEvent();
+                _lastCopyEventTime = now;
+                _lastClipboardEventId =
+                    copyEventId; // Track this event to prevent duplicates
+                // Mark that we've processed this selection to prevent duplicate detection
+                _hasProcessedSelectionForClipboard = true;
+                // Clear selection tracking to prevent re-detection
+                _lastSelection = null;
+                _lastSelectionTime = null;
+              } else {
+                print(
+                    '❌ [COPY] Skipping - timeSinceSelection ($timeSinceSelection ms) < 100ms threshold');
+              }
+            } else {
+              // Selection existed but we don't have timing - still likely a copy
+              print(
+                  '✅ [COPY] Detected COPY - selection cleared (no timing), eventId: $copyEventId');
+              _emitCopyEvent();
+              _lastCopyEventTime = now;
+              _lastClipboardEventId =
+                  copyEventId; // Track this event to prevent duplicates
+              print(
+                  '✅ [COPY] Event emitted and tracked - _lastClipboardEventId set to: $_lastClipboardEventId');
+              // Mark that we've processed this selection
+              _hasProcessedSelectionForClipboard = true;
+              // Clear selection tracking to prevent re-detection
+              _lastSelection = null;
+              _lastSelectionTime = null;
+            }
+          } else {
+            _hasProcessedSelectionForClipboard = true;
+            _lastSelection = null;
+            _lastSelectionTime = null;
+          }
+        } else {
+          // Still clear selection tracking even if we skip the event
+          _lastSelection = null;
+          _lastSelectionTime = null;
+          _hasProcessedSelectionForClipboard = true;
+        }
+      }
+    }
+
+    // Update selection tracking
+    if (currentSelection.isValid &&
+        currentSelection.start != currentSelection.end) {
+      // New valid selection - reset the processed flag
+      _lastSelection = currentSelection;
+      _lastSelectionTime = now;
+      _hasProcessedSelectionForClipboard =
+          false; // Reset flag for new selection
+    } else {
+      // Selection cleared or invalid
+      // Only update if we haven't already cleared it due to copy detection
+      if (_lastSelection != null && !_hasProcessedSelectionForClipboard) {
+        _lastSelection = currentSelection;
+        _lastSelectionTime = null;
+      }
+    }
+  }
+
+  void _emitPasteEvent() {
+    _emitClipboardEvent(ClipboardAction.paste);
+  }
+
+  void _emitCutEvent() {
+    _emitClipboardEvent(ClipboardAction.cut);
+  }
+
+  /// Manually emit a copy event (for apps that want to track copy operations)
+  /// This is also called automatically when copy is detected heuristically
+  void emitCopyEvent() {
+    _emitClipboardEvent(ClipboardAction.copy);
+  }
+
+  void _emitCopyEvent() {
+    _emitClipboardEvent(ClipboardAction.copy);
+  }
+
+  void _emitClipboardEvent(ClipboardAction action) {
+    switch (action) {
+      case ClipboardAction.paste:
+        _pasteCount++;
+        break;
+      case ClipboardAction.copy:
+        _copyCount++;
+        break;
+      case ClipboardAction.cut:
+        _cutCount++;
+        break;
+    }
+    final event = BehaviorEvent.clipboard(
+      sessionId: widget.sessionId ?? "current",
+      action: action,
+      context: ClipboardContext.textField,
+    );
+
+    if (widget.onClipboardEvent != null) {
+      widget.onClipboardEvent?.call(event);
+      // If onClipboardEvent is provided, don't auto-send via behavior
+      // The callback is responsible for sending to SDK if needed
+    } else {
+      // Only auto-send to SDK if onClipboardEvent is not provided
+      if (widget.behavior != null) {
+        widget.behavior?.sendEvent(event);
+      }
+    }
+  }
+
   void _emitTypingSessionEvent() {
-    if (_sessionStartTime == null || _interKeyLatencies.isEmpty) {
+    // Allow emitting even if _interKeyLatencies is empty (single keystroke case)
+    // In that case, typingTapCount will be 1 (0 intervals + 1 first keystroke)
+    if (_sessionStartTime == null) {
       return;
     }
 
@@ -718,7 +1048,16 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     final durationSeconds = durationMs / 1000.0;
 
     // N = typing_tap_count (total number of keyboard tap events)
-    final typingTapCount = _interKeyLatencies.length;
+    // IMPORTANT: _interKeyLatencies only stores intervals between keystrokes
+    // If we have N keystrokes, we have (N-1) intervals
+    // So typingTapCount = _interKeyLatencies.length + 1 (to account for first keystroke)
+    final typingTapCount = _interKeyLatencies.length + 1;
+    print('⌨️ [TYPING SESSION] Calculating typing metrics:');
+    print(
+        '⌨️ [TYPING SESSION] _interKeyLatencies.length: ${_interKeyLatencies.length}');
+    print(
+        '⌨️ [TYPING SESSION] typingTapCount (intervals + 1): $typingTapCount');
+    print('⌨️ [TYPING SESSION] _backspaceCount: $_backspaceCount');
 
     // typing_speed = N / T (taps per second)
     final typingSpeed =
@@ -734,8 +1073,9 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
       final sum =
           _interKeyLatencies.fold<int>(0, (sum, latency) => sum + latency);
       // Number of intervals = number of keystrokes - 1
-      final intervalCount =
-          typingTapCount > 1 ? typingTapCount - 1 : _interKeyLatencies.length;
+      // Since typingTapCount = _interKeyLatencies.length + 1, we have:
+      // intervalCount = typingTapCount - 1 = _interKeyLatencies.length
+      final intervalCount = _interKeyLatencies.length;
       meanInterTapIntervalMs = intervalCount > 0 ? sum / intervalCount : 0.0;
     }
 
@@ -788,8 +1128,9 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
 
     // typing_gap_ratio = typing_gap_count / (N - 1)
     // N = number of keystrokes, so (N - 1) = number of intervals
-    final intervalCount =
-        typingTapCount > 1 ? typingTapCount - 1 : _interKeyLatencies.length;
+    // Since typingTapCount = _interKeyLatencies.length + 1, we have:
+    // intervalCount = typingTapCount - 1 = _interKeyLatencies.length
+    final intervalCount = _interKeyLatencies.length;
     final typingGapRatio =
         intervalCount > 0 ? typingGapCount / intervalCount : 0.0;
 
@@ -842,6 +1183,10 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
       startAt: _sessionStartTime!.toUtc().toIso8601String(),
       endAt: sessionEndTime.toUtc().toIso8601String(),
       deepTyping: deepTyping,
+      backspaceCount: _backspaceCount,
+      number_of_copy: _copyCount,
+      number_of_paste: _pasteCount,
+      number_of_cut: _cutCount,
     );
 
     // Emit event through callback

@@ -365,6 +365,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
+        // Compute clipboard summary (counts only; correction_rate and clipboard_activity_rate come from Flux)
+        val clipboardEvents = data.events.filter { it.eventType == "clipboard" }
+        val clipboardCount = clipboardEvents.size
+        val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
+        val clipboardPasteCount = clipboardEvents.count { it.metrics["action"] == "paste" }
+        val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
+
         // Compute behavioral metrics from events
         // Use only Flux (Rust) calculations - native Kotlin calculations commented out
         val (calculationMetrics, fluxMetrics, performanceInfo) =
@@ -418,6 +425,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                         "call_count" to callCount,
                                         "call_ignored" to callIgnored
                                 ),
+                        "clipboard_summary" to
+                                mapOf(
+                                        "clipboard_count" to clipboardCount,
+                                        "clipboard_copy_count" to clipboardCopyCount,
+                                        "clipboard_paste_count" to clipboardPasteCount,
+                                        "clipboard_cut_count" to clipboardCutCount
+                                ),
                         "system_state" to
                                 mapOf(
                                         "internet_state" to endInternetState,
@@ -445,13 +459,14 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                     "typing_session_summary type: ${typingSummaryRaw?.javaClass?.simpleName}"
             )
         }
-        val fluxTypingSummary = fluxMetrics.get("typing_session_summary") as? Map<String, Any>
+        var fluxTypingSummary = fluxMetrics.get("typing_session_summary") as? Map<String, Any>
         android.util.Log.d("BehaviorSDK", "fluxTypingSummary after cast: $fluxTypingSummary")
         android.util.Log.d(
                 "BehaviorSDK",
                 "fluxTypingSummary is null: ${fluxTypingSummary == null}, isEmpty: ${fluxTypingSummary?.isEmpty()}"
         )
         if (fluxTypingSummary != null && fluxTypingSummary.isNotEmpty()) {
+            // correction_rate and clipboard_activity_rate come from Flux (no manual override)
             android.util.Log.d(
                     "BehaviorSDK",
                     "Adding Flux typing summary to session result with keys: ${fluxTypingSummary.keys}"
@@ -549,13 +564,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 // Convert events to synheart-flux JSON format
                 val fluxJson =
                         convertEventsToFluxJson(
-                                sessionId = data.sessionId,
-                                deviceId = "android-device", // TODO: Get actual device ID
-                                timezone = java.util.TimeZone.getDefault().id,
-                                startTimeMs = data.startTime,
-                                endTimeMs = data.endTime,
-                                events = data.events
-                        )
+                    sessionId = data.sessionId,
+                    deviceId = "android-device", // TODO: Get actual device ID
+                    timezone = java.util.TimeZone.getDefault().id,
+                    startTimeMs = data.startTime,
+                    endTimeMs = data.endTime,
+                    events = data.events
+                )
 
                 android.util.Log.d(
                         "BehaviorSDK",
@@ -566,7 +581,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 val jsonPreview =
                         if (fluxJson.length > 1000) {
                             fluxJson.substring(0, 1000) + "..."
-                        } else {
+                } else {
                             fluxJson
                         }
                 android.util.Log.d("BehaviorSDK", "Flux JSON preview: $jsonPreview")
@@ -582,7 +597,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                     val hsiPreview =
                             if (hsiJson.length > 2000) {
                                 hsiJson.substring(0, 2000) + "..."
-                            } else {
+                        } else {
                                 hsiJson
                             }
                     android.util.Log.d("BehaviorSDK", "HSI JSON preview: $hsiPreview")
@@ -594,11 +609,11 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 "BehaviorSDK",
                                 "Successfully computed metrics using synheart-flux (Flux) - ${fluxTimeMs}ms"
                         )
-                    } else {
+                } else {
                         fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
                         android.util.Log.w("BehaviorSDK", "Failed to extract metrics from HSI JSON")
                     }
-                } else {
+                        } else {
                     fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
                     android.util.Log.w(
                             "BehaviorSDK",
@@ -609,7 +624,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 android.util.Log.w("BehaviorSDK", "Flux computation failed: ${e.message}")
                 // Don't throw - just log the error and continue with Calculation results
             }
-        } else {
+                    } else {
             android.util.Log.d("BehaviorSDK", "Flux is not available - skipping Flux computation")
         }
 
@@ -713,6 +728,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
+        // Compute clipboard summary (counts only; correction_rate and clipboard_activity_rate come from Flux)
+        val clipboardEvents = filteredEvents.filter { it.eventType == "clipboard" }
+        val clipboardCount = clipboardEvents.size
+        val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
+        val clipboardPasteCount = clipboardEvents.count { it.metrics["action"] == "paste" }
+        val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
+
         // Compute behavioral metrics using Flux (Rust) - same as endSession()
         val (_, fluxMetrics, _) =
                 computeBehavioralMetricsWithFlux(tempData, duration, notificationCount, callCount)
@@ -730,7 +752,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                     key != "typing_session_summary" // Separate typing summary
                 }
 
-        // Extract typing session summary from Flux results
+        // Extract typing session summary from Flux results (correction_rate and clipboard_activity_rate from Flux)
         val typingSessionSummary =
                 fluxMetrics["typing_session_summary"] as? Map<String, Any>
                         ?: mapOf(
@@ -747,6 +769,8 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 "typing_contribution_to_interaction_intensity" to 0.0,
                                 "deep_typing_blocks" to 0,
                                 "typing_fragmentation" to 0.0,
+                                "correction_rate" to 0.0,
+                                "clipboard_activity_rate" to 0.0,
                                 "typing_metrics" to emptyList<Map<String, Any>>()
                         )
 
@@ -814,6 +838,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 "notification_clustering_index" to notificationClusteringIndex,
                                 "call_count" to callCount,
                                 "call_ignored" to callIgnored
+                        ),
+                "clipboard_summary" to
+                        mapOf(
+                                "clipboard_count" to clipboardCount,
+                                "clipboard_copy_count" to clipboardCopyCount,
+                                "clipboard_paste_count" to clipboardPasteCount,
+                                "clipboard_cut_count" to clipboardCutCount
                         ),
                 "typing_session_summary" to typingSessionSummary,
                 "motion_data" to motionDataList

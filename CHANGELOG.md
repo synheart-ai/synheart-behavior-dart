@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-02-06
+
+### Added
+
+- **Correction rate and clipboard activity rate**: Typing session summary now includes `correctionRate` and `clipboardActivityRate` computed by synheart-flux (Rust). The SDK sends per-session counts (backspace, copy, paste, cut) to Flux and receives the aggregated rates in the typing session summary.
+- Per-typing-session counts: Typing events now include `number_of_backspace`, `number_of_copy`, `number_of_paste`, and `number_of_cut` (and `number_of_delete` as 0 on mobile). Flux uses these to compute correction rate and clipboard activity rate.
+- Example app and Dart models already expose `correctionRate` and `clipboardActivityRate` from the session summary.
+
+### Changed
+
+- **Flux-only rates**: Manual correction rate and clipboard activity rate calculations were removed from Android and iOS SDKs. Both rates now come exclusively from Flux meta (`correction_rate`, `clipboard_activity_rate`).
+- **number_of_delete**: Sent as 0 on mobile (desktop/Flux supports separate delete key; mobile only tracks backspace).
+- **Example app release build**: When `key.properties` is missing, release APK now uses debug signing so `flutter build apk` produces an installable APK instead of an unsigned one.
+
+### Technical Details
+
+- Android and iOS FluxBridge: typing payload to Flux includes `number_of_backspace`, `number_of_delete` (0), `number_of_copy`, `number_of_paste`, `number_of_cut`. Flux meta is read for `correction_rate` and `clipboard_activity_rate` and exposed in `typing_session_summary`.
+- Clipboard summary still provides raw counts (clipboard_count, copy/paste/cut counts); only the rates are computed by Flux.
+
 ## [0.0.1] - 2025-12-26
 
 ### Added

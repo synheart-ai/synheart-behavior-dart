@@ -35,6 +35,10 @@ object FluxBridge {
             jniAvailable = testJniAvailability()
             if (jniAvailable) {
                 Log.d(TAG, "JNI methods available")
+                val version = nativeFluxVersion()
+                if (!version.isNullOrBlank()) {
+                    Log.d(TAG, "synheart-flux version: $version")
+                }
             } else {
                 Log.w(TAG, "Library loaded but JNI methods not available")
             }
@@ -66,6 +70,12 @@ object FluxBridge {
 
     /** Check if the Rust library is available and JNI is properly configured. */
     fun isAvailable(): Boolean = libraryLoaded && jniAvailable
+
+    /**
+     * Return the loaded synheart-flux library version (e.g. "0.2.0"), or null if unavailable.
+     * Use this to verify you are running the expected Flux release.
+     */
+    fun getFluxVersion(): String? = if (isAvailable()) nativeFluxVersion() else null
 
     /**
      * Convert behavioral session to HSI JSON (stateless, one-shot).
@@ -179,17 +189,18 @@ object FluxBridge {
     private external fun nativeProcessorProcess(handle: Long, sessionJson: String): String?
     private external fun nativeProcessorSaveBaselines(handle: Long): String?
     private external fun nativeProcessorLoadBaselines(handle: Long, baselinesJson: String): Int
+    private external fun nativeFluxVersion(): String?
     private external fun nativeLastError(): String?
 }
 
 /** Convert session events to synheart-flux JSON format. */
 fun convertEventsToFluxJson(
-        sessionId: String,
-        deviceId: String,
-        timezone: String,
-        startTimeMs: Long,
-        endTimeMs: Long,
-        events: List<BehaviorEvent>
+    sessionId: String,
+    deviceId: String,
+    timezone: String,
+    startTimeMs: Long,
+    endTimeMs: Long,
+    events: List<BehaviorEvent>
 ): String {
     val fluxEvents = JSONArray()
 
@@ -199,7 +210,7 @@ fun convertEventsToFluxJson(
     var scrollEventsWithoutReversal = 0
     var scrollEventsWithoutScrollData = 0
 
-    for (event in events) {
+    eventLoop@ for (event in events) {
         val fluxEvent = JSONObject()
         fluxEvent.put("timestamp", event.timestamp)
         fluxEvent.put("event_type", event.eventType)
@@ -375,6 +386,44 @@ fun convertEventsToFluxJson(
                 if (endAt != null) {
                     typing.put("end_at", endAt.toString())
                 }
+                // Correction and clipboard counts for Flux (correction_rate, clipboard_activity_rate)
+                val backspaceCount = event.metrics["backspace_count"]
+                typing.put(
+                    "number_of_backspace",
+                    when (backspaceCount) {
+                        is Number -> backspaceCount.toInt()
+                        is String -> backspaceCount.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                )
+                typing.put("number_of_delete", 0)
+                val numberOfCopy = event.metrics["number_of_copy"]
+                typing.put(
+                    "number_of_copy",
+                    when (numberOfCopy) {
+                        is Number -> numberOfCopy.toInt()
+                        is String -> numberOfCopy.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                )
+                val numberOfPaste = event.metrics["number_of_paste"]
+                typing.put(
+                    "number_of_paste",
+                    when (numberOfPaste) {
+                        is Number -> numberOfPaste.toInt()
+                        is String -> numberOfPaste.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                )
+                val numberOfCut = event.metrics["number_of_cut"]
+                typing.put(
+                    "number_of_cut",
+                    when (numberOfCut) {
+                        is Number -> numberOfCut.toInt()
+                        is String -> numberOfCut.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+                )
                 fluxEvent.put("typing", typing)
             }
             "app_switch" -> {
@@ -382,6 +431,11 @@ fun convertEventsToFluxJson(
                 appSwitch.put("from_app_id", event.metrics["from_app_id"] ?: "")
                 appSwitch.put("to_app_id", event.metrics["to_app_id"] ?: "")
                 fluxEvent.put("app_switch", appSwitch)
+            }
+            "clipboard" -> {
+                // Clipboard events are tracked separately, not sent to Flux
+                // Skip this event in Flux JSON conversion
+                continue@eventLoop
             }
         }
 
@@ -557,9 +611,9 @@ private fun extractDeepFocusBlocks(blocks: JSONArray?): List<Map<String, Any>> {
     return (0 until blocks.length()).map { i ->
         val block = blocks.getJSONObject(i)
         mapOf(
-                "start_at" to block.optString("start_at", ""),
-                "end_at" to block.optString("end_at", ""),
-                "duration_ms" to block.optInt("duration_ms", 0)
+            "start_at" to block.optString("start_at", ""),
+            "end_at" to block.optString("end_at", ""),
+            "duration_ms" to block.optInt("duration_ms", 0)
         )
     }
 }
@@ -595,6 +649,8 @@ private fun extractTypingSessionSummary(meta: JSONObject?): Map<String, Any> {
                     (meta.optDouble("typing_contribution_to_interaction_intensity") ?: 0.0),
             "deep_typing_blocks" to (meta.optInt("deep_typing_blocks") ?: 0),
             "typing_fragmentation" to (meta.optDouble("typing_fragmentation") ?: 0.0),
+            "correction_rate" to (meta.optDouble("correction_rate") ?: 0.0),
+            "clipboard_activity_rate" to (meta.optDouble("clipboard_activity_rate") ?: 0.0),
             "typing_metrics" to extractTypingMetrics(meta.optJSONArray("typing_metrics"))
     )
 }
@@ -619,7 +675,12 @@ private fun extractTypingMetrics(metricsArray: JSONArray?): List<Map<String, Any
                 "typing_burstiness" to metric.optDouble("typing_burstiness", 0.0),
                 "typing_activity_ratio" to metric.optDouble("typing_activity_ratio", 0.0),
                 "typing_interaction_intensity" to
-                        metric.optDouble("typing_interaction_intensity", 0.0)
+                        metric.optDouble("typing_interaction_intensity", 0.0),
+                "number_of_backspace" to metric.optInt("number_of_backspace", 0),
+                "number_of_delete" to metric.optInt("number_of_delete", 0),
+                "number_of_cut" to metric.optInt("number_of_cut", 0),
+                "number_of_paste" to metric.optInt("number_of_paste", 0),
+                "number_of_copy" to metric.optInt("number_of_copy", 0)
         )
     }
 }

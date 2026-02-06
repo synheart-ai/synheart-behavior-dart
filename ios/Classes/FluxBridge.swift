@@ -318,12 +318,26 @@ public func convertEventsToFluxJson(
             if let endAt = event.metrics["end_at"] {
                 typing["end_at"] = endAt
             }
+            // Correction and clipboard counts for Flux (correction_rate, clipboard_activity_rate)
+            if let backspaceCount = event.metrics["backspace_count"] {
+                typing["number_of_backspace"] = (backspaceCount as? NSNumber)?.intValue ?? (backspaceCount as? String).flatMap { Int($0) } ?? 0
+            } else {
+                typing["number_of_backspace"] = 0
+            }
+            typing["number_of_delete"] = 0
+            typing["number_of_copy"] = (event.metrics["number_of_copy"] as? NSNumber)?.intValue ?? (event.metrics["number_of_copy"] as? String).flatMap { Int($0) } ?? 0
+            typing["number_of_paste"] = (event.metrics["number_of_paste"] as? NSNumber)?.intValue ?? (event.metrics["number_of_paste"] as? String).flatMap { Int($0) } ?? 0
+            typing["number_of_cut"] = (event.metrics["number_of_cut"] as? NSNumber)?.intValue ?? (event.metrics["number_of_cut"] as? String).flatMap { Int($0) } ?? 0
             fluxEvent["typing"] = typing
         case "app_switch":
             fluxEvent["app_switch"] = [
                 "from_app_id": event.metrics["from_app_id"] ?? "",
                 "to_app_id": event.metrics["to_app_id"] ?? ""
             ]
+        case "clipboard":
+            // Clipboard events are tracked separately, not sent to Flux
+            // Skip this event in Flux JSON conversion
+            continue
         default:
             break
         }
@@ -510,6 +524,8 @@ private func extractTypingSessionSummary(_ meta: [String: Any]) -> [String: Any]
         "typing_contribution_to_interaction_intensity": meta["typing_contribution_to_interaction_intensity"] as? Double ?? 0.0,
         "deep_typing_blocks": meta["deep_typing_blocks"] as? Int ?? 0,
         "typing_fragmentation": meta["typing_fragmentation"] as? Double ?? 0.0,
+        "correction_rate": meta["correction_rate"] as? Double ?? 0.0,
+        "clipboard_activity_rate": meta["clipboard_activity_rate"] as? Double ?? 0.0,
         "typing_metrics": extractTypingMetrics(meta["typing_metrics"] as? [[String: Any]])
     ]
 }
@@ -534,6 +550,12 @@ private func extractTypingMetrics(_ metricsArray: [[String: Any]]?) -> [[String:
         let typingActivityRatio = metric["typing_activity_ratio"] as? Double ?? 0.0
         let typingInteractionIntensity = metric["typing_interaction_intensity"] as? Double ?? 0.0
         
+        let numberOfBackspace = metric["number_of_backspace"] as? Int ?? 0
+        let numberOfDelete = metric["number_of_delete"] as? Int ?? 0
+        let numberOfCut = metric["number_of_cut"] as? Int ?? 0
+        let numberOfPaste = metric["number_of_paste"] as? Int ?? 0
+        let numberOfCopy = metric["number_of_copy"] as? Int ?? 0
+
         // Build dictionary with extracted values
         return [
             "start_at": startAt,
@@ -549,7 +571,12 @@ private func extractTypingMetrics(_ metricsArray: [[String: Any]]?) -> [[String:
             "typing_gap_ratio": typingGapRatio,
             "typing_burstiness": typingBurstiness,
             "typing_activity_ratio": typingActivityRatio,
-            "typing_interaction_intensity": typingInteractionIntensity
+            "typing_interaction_intensity": typingInteractionIntensity,
+            "number_of_backspace": numberOfBackspace,
+            "number_of_delete": numberOfDelete,
+            "number_of_cut": numberOfCut,
+            "number_of_paste": numberOfPaste,
+            "number_of_copy": numberOfCopy
         ]
     }
 }

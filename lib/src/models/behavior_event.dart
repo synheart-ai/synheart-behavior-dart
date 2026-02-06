@@ -6,6 +6,7 @@ enum BehaviorEventType {
   notification,
   call,
   typing,
+  clipboard,
 }
 
 /// Scroll direction enum (vertical scrolling only)
@@ -26,6 +27,19 @@ enum InterruptionAction {
   opened,
   answered,
   dismissed,
+}
+
+/// Clipboard action enum
+enum ClipboardAction {
+  copy,
+  paste,
+  cut,
+}
+
+/// Clipboard context enum (where the action occurred)
+enum ClipboardContext {
+  textField,
+  system,
 }
 
 /// A single behavioral event emitted by the SDK.
@@ -181,6 +195,11 @@ class BehaviorEvent {
     required String startAt,
     required String endAt,
     required bool deepTyping,
+    int backspaceCount = 0,
+    int number_of_delete = 0,
+    int number_of_copy = 0,
+    int number_of_paste = 0,
+    int number_of_cut = 0,
     String? eventId,
     DateTime? timestamp,
   }) {
@@ -204,6 +223,34 @@ class BehaviorEvent {
         'start_at': startAt,
         'end_at': endAt,
         'deep_typing': deepTyping,
+        'backspace_count': backspaceCount,
+        'number_of_delete': number_of_delete,
+        'number_of_copy': number_of_copy,
+        'number_of_paste': number_of_paste,
+        'number_of_cut': number_of_cut,
+      },
+    );
+  }
+
+  /// Create a clipboard event.
+  ///
+  /// This factory creates a clipboard event for copy or paste actions.
+  /// Privacy-first: Only detects that clipboard action occurred, not the content.
+  factory BehaviorEvent.clipboard({
+    required String sessionId,
+    required ClipboardAction action,
+    ClipboardContext? context,
+    String? eventId,
+    DateTime? timestamp,
+  }) {
+    return BehaviorEvent(
+      eventId: eventId,
+      sessionId: sessionId,
+      timestamp: timestamp,
+      eventType: BehaviorEventType.clipboard,
+      metrics: {
+        'action': action.name,
+        if (context != null) 'context': context.name,
       },
     );
   }

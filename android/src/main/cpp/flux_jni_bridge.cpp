@@ -13,6 +13,7 @@ extern "C" {
     typedef char* (*flux_behavior_to_hsi_t)(const char* json);
     typedef void (*flux_free_string_t)(char* str);
     typedef char* (*flux_last_error_t)();
+    typedef const char* (*flux_version_t)();
     typedef void* (*flux_behavior_processor_new_t)(int baseline_window);
     typedef void (*flux_behavior_processor_free_t)(void* processor);
     typedef char* (*flux_behavior_processor_process_t)(void* processor, const char* json);
@@ -29,6 +30,7 @@ static flux_behavior_processor_free_t g_flux_behavior_processor_free = nullptr;
 static flux_behavior_processor_process_t g_flux_behavior_processor_process = nullptr;
 static flux_behavior_processor_save_baselines_t g_flux_behavior_processor_save_baselines = nullptr;
 static flux_behavior_processor_load_baselines_t g_flux_behavior_processor_load_baselines = nullptr;
+static flux_version_t g_flux_version = nullptr;
 static bool g_functions_loaded = false;
 
 // Load function pointers from libsynheart_flux.so
@@ -59,8 +61,9 @@ static bool load_flux_functions() {
     g_flux_behavior_processor_process = (flux_behavior_processor_process_t)dlsym(handle, "flux_behavior_processor_process");
     g_flux_behavior_processor_save_baselines = (flux_behavior_processor_save_baselines_t)dlsym(handle, "flux_behavior_processor_save_baselines");
     g_flux_behavior_processor_load_baselines = (flux_behavior_processor_load_baselines_t)dlsym(handle, "flux_behavior_processor_load_baselines");
+    g_flux_version = (flux_version_t)dlsym(handle, "flux_version");
 
-    // Check if all functions were loaded
+    // Check if all required functions were loaded (flux_version is optional for backward compat)
     if (!g_flux_behavior_to_hsi || !g_flux_free_string || !g_flux_last_error ||
         !g_flux_behavior_processor_new || !g_flux_behavior_processor_free ||
         !g_flux_behavior_processor_process || !g_flux_behavior_processor_save_baselines ||
@@ -71,6 +74,12 @@ static bool load_flux_functions() {
 
     g_functions_loaded = true;
     LOGI("Successfully loaded all Flux functions");
+    if (g_flux_version) {
+        const char* ver = g_flux_version();
+        if (ver) {
+            LOGI("synheart-flux version: %s", ver);
+        }
+    }
     return true;
 }
 
@@ -253,6 +262,22 @@ Java_ai_synheart_behavior_FluxBridge_nativeProcessorLoadBaselines(
     }
 
     return result;
+}
+
+// JNI: Java_ai_synheart_behavior_FluxBridge_nativeFluxVersion
+extern "C" JNIEXPORT jstring JNICALL
+Java_ai_synheart_behavior_FluxBridge_nativeFluxVersion(
+    JNIEnv* env,
+    jclass clazz
+) {
+    if (!load_flux_functions() || !g_flux_version) {
+        return nullptr;
+    }
+    const char* ver = g_flux_version();
+    if (!ver) {
+        return nullptr;
+    }
+    return cstring_to_jstring(env, ver);
 }
 
 // JNI: Java_ai_synheart_behavior_FluxBridge_nativeLastError

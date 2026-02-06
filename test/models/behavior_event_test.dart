@@ -69,7 +69,7 @@ void main() {
 
     group('BehaviorEventType', () {
       test('has all expected event types', () {
-        expect(BehaviorEventType.values.length, 6);
+        expect(BehaviorEventType.values.length, 7);
 
         expect(BehaviorEventType.values, contains(BehaviorEventType.scroll));
         expect(BehaviorEventType.values, contains(BehaviorEventType.tap));
@@ -78,6 +78,7 @@ void main() {
             BehaviorEventType.values, contains(BehaviorEventType.notification));
         expect(BehaviorEventType.values, contains(BehaviorEventType.call));
         expect(BehaviorEventType.values, contains(BehaviorEventType.typing));
+        expect(BehaviorEventType.values, contains(BehaviorEventType.clipboard));
       });
 
       test('event type enum name matches string', () {
@@ -148,6 +149,41 @@ void main() {
 
         expect(event.eventType, BehaviorEventType.call);
         expect(event.metrics['action'], 'answered');
+      });
+
+      test('BehaviorEvent.clipboard creates clipboard event', () {
+        final event = BehaviorEvent.clipboard(
+          sessionId: 'test-session',
+          action: ClipboardAction.paste,
+          context: ClipboardContext.textField,
+        );
+
+        expect(event.eventType, BehaviorEventType.clipboard);
+        expect(event.metrics['action'], 'paste');
+        expect(event.metrics['context'], 'textField');
+      });
+
+      test('BehaviorEvent.clipboard without context', () {
+        final event = BehaviorEvent.clipboard(
+          sessionId: 'test-session',
+          action: ClipboardAction.copy,
+        );
+
+        expect(event.eventType, BehaviorEventType.clipboard);
+        expect(event.metrics['action'], 'copy');
+        expect(event.metrics.containsKey('context'), false);
+      });
+
+      test('BehaviorEvent.clipboard with cut action', () {
+        final event = BehaviorEvent.clipboard(
+          sessionId: 'test-session',
+          action: ClipboardAction.cut,
+          context: ClipboardContext.textField,
+        );
+
+        expect(event.eventType, BehaviorEventType.clipboard);
+        expect(event.metrics['action'], 'cut');
+        expect(event.metrics['context'], 'textField');
       });
     });
   });

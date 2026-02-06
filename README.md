@@ -27,6 +27,7 @@ These behavioral signals power downstream systems such as:
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android with Flux (Rust) integration for HSI-compliant metrics
+- **Typing metrics from Flux**: Correction rate and clipboard activity rate computed by Flux; per-session backspace and copy/paste/cut counts sent to Flux for aggregation
 
 ## 📦 Installation
 
@@ -34,7 +35,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.1.4
+  synheart_behavior: ^0.2.0
 ```
 
 Then run:
@@ -45,7 +46,7 @@ flutter pub get
 
 ### Platform Setup
 
-**synheart-flux is required!** The SDK requires synheart-flux (Rust library) to be integrated. See [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md) for detailed integration instructions.
+**synheart-flux is required!** The SDK requires synheart-flux **0.2.0** or later (Rust library) for behavioral metrics. See [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md) for detailed integration instructions.
 
 For optional features (notifications and calls), see the [Permissions](#permissions) section below.
 
@@ -429,13 +430,18 @@ Session-level outputs include (all computed by synheart-flux for HSI compliance)
 - `notificationLoad`: Notification pressure and response patterns
 - `scrollJitterRate`: Scroll pattern irregularity
 
+Typing session summary (from Flux) also includes:
+
+- `correctionRate`: Proportion of correction actions (backspace/delete) relative to typing taps and corrections; computed by Flux from per-session counts.
+- `clipboardActivityRate`: Proportion of clipboard actions (copy, paste, cut) relative to typing taps and clipboard actions; computed by Flux from per-session counts.
+
 All metrics are bounded, normalized, numerically stable, and computed using synheart-flux (Rust) for cross-platform consistency and HSI compliance.
 
 ## ⚙️ Additional Features
 
 ### Text Field Widget
 
-The SDK provides a `BehaviorTextField` widget for convenience. Note that text input interactions are captured as tap events (not separate typing events):
+The SDK provides a `BehaviorTextField` widget that tracks typing sessions and emits typing events with full metrics (keystrokes, backspace, copy/paste/cut counts). These are sent to Flux for correction rate and clipboard activity rate. Text content is never collected—only timing and action counts.
 
 ```dart
 behavior.createBehaviorTextField(

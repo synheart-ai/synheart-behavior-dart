@@ -2,6 +2,17 @@
 
 This document explains how to integrate synheart-flux (Rust library) with synheart-behavior-dart for HSI-compliant behavioral metrics computation.
 
+## Required Version
+
+For behavior metrics, use **synheart-flux 0.2.0** or later. Download artifacts from the [v0.2.0 release](https://github.com/synheart-ai/synheart-flux/releases/tag/v0.2.0) (or the [releases page](https://github.com/synheart-ai/synheart-flux/releases)).
+
+**Using the released Flux (not building from source):** This SDK repo may bundle pre-built Flux binaries for convenience; those are not guaranteed to be 0.2.0. To use the **released** Flux 0.2.0:
+
+1. **Android**: From the [v0.2.0 release](https://github.com/synheart-ai/synheart-flux/releases/tag/v0.2.0), download `synheart-flux-android-jniLibs.tar.gz`, extract it, and **replace** the contents of `android/src/main/jniLibs/` with the extracted `.so` files (arm64-v8a, armeabi-v7a, x86_64).
+2. **iOS**: From the same release, download `synheart-flux-ios-xcframework.zip`, extract it, and **replace** `ios/Frameworks/SynheartFlux.xcframework` with the extracted XCFramework.
+
+After replacing, you are using the official Flux 0.2.0 release for behavior.
+
 ## Overview
 
 The synheart-behavior SDK **requires** synheart-flux for computing behavioral metrics. All behavioral and typing metric calculations are performed by the Rust library, ensuring:
@@ -35,7 +46,7 @@ The SDK uses synheart-flux for computing:
 
 ### Android
 
-1. Download the synheart-flux Android libraries from the [synheart-flux releases](https://github.com/synheart-ai/synheart-flux/releases):
+1. Download the synheart-flux Android libraries from the [synheart-flux v0.2.0 release](https://github.com/synheart-ai/synheart-flux/releases/tag/v0.2.0) (or latest):
    - `synheart-flux-android-jniLibs.tar.gz`
 
 2. Extract and place the `.so` files:
@@ -53,7 +64,7 @@ The SDK uses synheart-flux for computing:
 
 ### iOS
 
-1. Download the synheart-flux iOS XCFramework from the [synheart-flux releases](https://github.com/synheart-ai/synheart-flux/releases):
+1. Download the synheart-flux iOS XCFramework from the [synheart-flux v0.2.0 release](https://github.com/synheart-ai/synheart-flux/releases/tag/v0.2.0) (or latest):
    - `synheart-flux-ios-xcframework.zip`
 
 2. Extract and place the XCFramework:
@@ -151,6 +162,42 @@ BehaviorSDK: Successfully computed metrics using synheart-flux
 ```
 
 If you see "Flux is required but metrics are not available" errors, the Rust library is not loaded correctly and the SDK will fail.
+
+## Verifying Flux version
+
+To confirm you have the **updated** Flux (e.g. 0.2.0):
+
+### At runtime (easiest)
+
+- **Android**: After launching the app, check **logcat** (filter by `FluxBridge` or `FluxJniBridge`). You should see:
+  ```
+  D/FluxBridge: synheart-flux version: 0.2.0
+  ```
+  or from the JNI bridge:
+  ```
+  I/FluxJniBridge: synheart-flux version: 0.2.0
+  ```
+- **iOS**: In the Xcode or device console, look for:
+  ```
+  FluxBridge: ✅ Found synheart-flux version: 0.2.0
+  ```
+
+If you see `0.2.0` (or higher), you are using the updated Flux release.
+
+### From code (Android)
+
+You can also read the version in app code:
+```kotlin
+val version = FluxBridge.getFluxVersion()  // e.g. "0.2.0" or null
+```
+
+### From HSI output
+
+The HSI JSON returned by Flux includes the producer version. After processing a session, inspect the payload:
+```json
+"producer": { "name": "synheart-flux", "version": "0.2.0", ... }
+```
+If `producer.version` is `"0.2.0"`, the loaded library is the 0.2.0 release.
 
 ## Required Integration
 
