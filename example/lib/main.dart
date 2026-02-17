@@ -624,16 +624,31 @@ class _BehaviorDemoPageState extends State<BehaviorDemoPage>
                             labelText: 'Text Input',
                           ),
                           maxLines: 3,
+                          behavior: _behavior,
+                          sessionId: _currentSession?.sessionId,
                           onTypingEvent: (event) async {
                             // Send typing event to SDK
                             if (_behavior != null) {
                               await _behavior!.sendEvent(event);
                             }
                           },
+                          onClipboardEvent: (event) async {
+                            // Send clipboard event to SDK
+                            print(
+                                '📋 Example App: Clipboard event received - action: ${event.metrics['action']}, context: ${event.metrics['context']}');
+                            if (_behavior != null) {
+                              await _behavior!.sendEvent(event);
+                              print(
+                                  '📋 Example App: Clipboard event sent to SDK');
+                            } else {
+                              print(
+                                  '📋 Example App: WARNING - behavior is null, cannot send event');
+                            }
+                          },
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Typing events will appear in the event stream above',
+                          'Type to test typing events. Paste 5+ characters to test clipboard detection.',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: Colors.grey[600],
@@ -1397,6 +1412,15 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
                           'Typing Fragmentation',
                           widget
                               .summary.typingSessionSummary!.typingFragmentation
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Clipboard Activity Rate',
+                          widget.summary.typingSessionSummary!
+                              .clipboardActivityRate
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Correction Rate',
+                          widget.summary.typingSessionSummary!.correctionRate
                               .toStringAsFixed(3)),
                       if (widget.summary.typingSessionSummary!
                           .individualTypingSessions.isNotEmpty) ...[
@@ -2193,37 +2217,89 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          ...event.metrics.entries.map((entry) => Padding(
-                padding: const EdgeInsets.only(left: 8, top: 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        '${entry.key}: ',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w500,
-                              fontFamily: 'monospace',
-                            ),
-                      ),
+          ...event.metrics.entries.map((entry) {
+            // Format the value for better readability
+            String formattedValue = _formatMetricValue(entry.value);
+
+            return Padding(
+              padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Key with fixed width to prevent wrapping
+                  SizedBox(
+                    width: 140,
+                    child: Text(
+                      '${_formatMetricKey(entry.key)}:',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    Flexible(
-                      flex: 2,
-                      child: Text(
-                        entry.value.toString(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontFamily: 'monospace',
-                            ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 2,
-                      ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Value that can wrap
+                  Expanded(
+                    child: Text(
+                      formattedValue,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                      softWrap: true,
                     ),
-                  ],
-                ),
-              )),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
+  }
+
+  String _formatMetricKey(String key) {
+    // Replace underscores with spaces and capitalize first letter of each word
+    return key
+        .split('_')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+  }
+
+  String _formatMetricValue(dynamic value) {
+    if (value is double) {
+      // Format decimals to 2-4 significant digits
+      if (value.abs() < 0.01) {
+        return value.toStringAsFixed(4);
+      } else if (value.abs() < 1) {
+        return value.toStringAsFixed(3);
+      } else if (value.abs() < 100) {
+        return value.toStringAsFixed(2);
+      } else {
+        return value.toStringAsFixed(1);
+      }
+    } else if (value is int) {
+      return value.toString();
+    } else if (value is String) {
+      // Format ISO8601 dates to readable format
+      if (value.contains('T') && value.contains('Z')) {
+        try {
+          final date = DateTime.parse(value);
+          return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
+              '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}:${date.second.toString().padLeft(2, '0')}';
+        } catch (e) {
+          return value;
+        }
+      }
+      return value;
+    } else if (value is bool) {
+      return value ? 'Yes' : 'No';
+    }
+    return value.toString();
   }
 
   Color _getEventTypeColor(BehaviorEventType eventType) {
@@ -2240,6 +2316,8 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
         return Colors.purple;
       case BehaviorEventType.typing:
         return Colors.teal;
+      case BehaviorEventType.clipboard:
+        return Colors.pink;
     }
   }
 

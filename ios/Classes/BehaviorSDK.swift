@@ -323,6 +323,21 @@ public class BehaviorSDK {
             ($0.metrics["action"] as? String) == "ignored" 
         }.count
         
+        // Compute clipboard summary (tracked separately, not sent to Flux)
+        let clipboardEvents = data.events.filter { $0.eventType == "clipboard" }
+        let clipboardCount = clipboardEvents.count
+        let clipboardCopyCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "copy"
+        }.count
+        let clipboardPasteCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "paste"
+        }.count
+        let clipboardCutCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "cut"
+        }.count
+        
+        // correction_rate and clipboard_activity_rate come from Flux (no manual calculation)
+
         // Compute behavioral metrics from events
         // Use only Flux (Rust) calculations - native Swift calculations commented out
         let (calculationMetrics, fluxMetrics, performanceInfo) = computeBehavioralMetricsWithFlux(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
@@ -372,6 +387,12 @@ public class BehaviorSDK {
                 "call_count": callCount,
                 "call_ignored": callIgnored
             ],
+            "clipboard_summary": [
+                "clipboard_count": clipboardCount,
+                "clipboard_copy_count": clipboardCopyCount,
+                "clipboard_paste_count": clipboardPasteCount,
+                "clipboard_cut_count": clipboardCutCount
+            ],
             "system_state": [
                 "internet_state": endInternetState,
                 "do_not_disturb": endDoNotDisturb,
@@ -385,7 +406,7 @@ public class BehaviorSDK {
         //     summary["typing_session_summary"] = typingSessionSummary
         // }
         
-        // Extract Flux typing session summary (now primary source)
+        // Extract Flux typing session summary (correction_rate and clipboard_activity_rate from Flux)
         if let fluxTypingSummary = fluxMetrics["typing_session_summary"] as? [String: Any], !fluxTypingSummary.isEmpty {
             summary["typing_session_summary"] = fluxTypingSummary
         }
@@ -619,6 +640,22 @@ public class BehaviorSDK {
             ($0.metrics["action"] as? String) == "ignored"
         }.count
         
+        // Compute clipboard summary (tracked separately, not sent to Flux)
+        let clipboardEvents = filteredEvents.filter { $0.eventType == "clipboard" }
+        let clipboardCount = clipboardEvents.count
+        let clipboardCopyCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "copy"
+        }.count
+        let clipboardPasteCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "paste"
+        }.count
+        let clipboardCutCount = clipboardEvents.filter {
+            ($0.metrics["action"] as? String) == "cut"
+        }.count
+        
+        // Calculate Clipboard Activity Rate
+        // correction_rate and clipboard_activity_rate come from Flux
+
         // Compute behavioral metrics using Flux (Rust) - same as endSession()
         let (_, fluxMetrics, _) = computeBehavioralMetricsWithFlux(
             data: tempData,
@@ -644,7 +681,7 @@ public class BehaviorSDK {
             }
         }
         
-        // Extract typing session summary from Flux results
+        // Extract typing session summary from Flux results (correction_rate and clipboard_activity_rate from Flux)
         let typingSessionSummary = fluxMetrics["typing_session_summary"] as? [String: Any] ?? [
             "typing_session_count": 0,
             "average_keystrokes_per_session": 0.0,
@@ -659,9 +696,11 @@ public class BehaviorSDK {
             "typing_contribution_to_interaction_intensity": 0.0,
             "deep_typing_blocks": 0,
             "typing_fragmentation": 0.0,
+            "correction_rate": 0.0,
+            "clipboard_activity_rate": 0.0,
             "typing_metrics": [] as [[String: Any]]
         ]
-        
+
         // Get motion data for the time range
         let allMotionData: [MotionSignalCollector.MotionDataPoint]
         if let _ = sessionDataEntry {
@@ -727,6 +766,12 @@ public class BehaviorSDK {
                 "notification_clustering_index": notificationClusteringIndex,
                 "call_count": callCount,
                 "call_ignored": callIgnored
+            ] as [String: Any],
+            "clipboard_summary": [
+                "clipboard_count": clipboardCount,
+                "clipboard_copy_count": clipboardCopyCount,
+                "clipboard_paste_count": clipboardPasteCount,
+                "clipboard_cut_count": clipboardCutCount
             ] as [String: Any],
             "typing_session_summary": typingSessionSummary,
             "motion_data": motionDataList
