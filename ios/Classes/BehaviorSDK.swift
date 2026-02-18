@@ -47,10 +47,6 @@ public class BehaviorSDK {
         self.notificationCollector = NotificationCollector(config: config)
         self.callCollector = CallCollector(config: config)
         self.motionSignalCollector = MotionSignalCollector(config: config)
-        
-        // Initialize FluxBridge early to check availability
-        _ = FluxBridge.shared
-        print("BehaviorSDK: FluxBridge initialized, available: \(FluxBridge.shared.isAvailable)")
     }
 
     public func initialize() {
@@ -323,7 +319,7 @@ public class BehaviorSDK {
             ($0.metrics["action"] as? String) == "ignored" 
         }.count
         
-        // Compute clipboard summary (tracked separately, not sent to Flux)
+        // Compute clipboard summary
         let clipboardEvents = data.events.filter { $0.eventType == "clipboard" }
         let clipboardCount = clipboardEvents.count
         let clipboardCopyCount = clipboardEvents.filter {
@@ -335,21 +331,9 @@ public class BehaviorSDK {
         let clipboardCutCount = clipboardEvents.filter {
             ($0.metrics["action"] as? String) == "cut"
         }.count
-        
-        // correction_rate and clipboard_activity_rate come from Flux (no manual calculation)
 
         // Compute behavioral metrics from events
-        // Use only Flux (Rust) calculations - native Swift calculations commented out
-        let (calculationMetrics, fluxMetrics, performanceInfo) = computeBehavioralMetricsWithFlux(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
-        
-        // Require Flux metrics - fail if not available
-        guard let fluxMetrics = fluxMetrics else {
-            throw NSError(domain: "BehaviorSDK", code: 1, userInfo: [NSLocalizedDescriptionKey: "Flux is required but metrics are not available"])
-        }
-        
-        // Compute typing session summary
-        // Native Swift typing summary calculation commented out - using Flux typing summary instead
-        // let typingSessionSummary = computeTypingSessionSummary(data: data, durationMs: Int64(duration))
+        let behavioralMetrics = computeBehavioralMetricsFromEvents(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
         
         // Collect motion data if enabled
         let motionData = motionSignalCollector.stopSession()
@@ -376,9 +360,7 @@ public class BehaviorSDK {
                 "total_events": data.eventCount,
                 "app_switch_count": data.appSwitchCount
             ],
-            "behavioral_metrics": fluxMetrics, // Use Flux (Rust) results as primary
-            // "behavioral_metrics_flux" removed - Flux is now the primary source
-            "performance_info": performanceInfo,
+            "behavioral_metrics": behavioralMetrics,
             "notification_summary": [
                 "notification_count": notificationCount,
                 "notification_ignored": notificationIgnored,
@@ -400,15 +382,9 @@ public class BehaviorSDK {
             ]
         ]
         
-        // Add typing session summary from Flux (primary source)
-        // Native typing summary commented out - using Flux typing summary instead
-        // if !typingSessionSummary.isEmpty {
-        //     summary["typing_session_summary"] = typingSessionSummary
-        // }
-        
-        // Extract Flux typing session summary (correction_rate and clipboard_activity_rate from Flux)
-        if let fluxTypingSummary = fluxMetrics["typing_session_summary"] as? [String: Any], !fluxTypingSummary.isEmpty {
-            summary["typing_session_summary"] = fluxTypingSummary
+        // Add typing session summary if available from behavioral metrics
+        if let typingSummary = behavioralMetrics["typing_session_summary"] as? [String: Any], !typingSummary.isEmpty {
+            summary["typing_session_summary"] = typingSummary
         }
         
         // Add motion data if available
@@ -462,87 +438,111 @@ public class BehaviorSDK {
     }
     
 
-    /// Compute behavioral metrics using Flux (Rust).
+    /// Compute behavioral metrics from session events.
     ///
-    /// Returns a tuple of (calculationMetrics, fluxMetrics, performanceInfo) where:
-    /// - calculationMetrics: Empty dictionary (not used, kept for API compatibility)
-    /// - fluxMetrics: Results from Rust (synheart-flux), or nil if Flux is unavailable/failed
-    /// - performanceInfo: Contains execution time for Flux computation
-    private func computeBehavioralMetricsWithFlux(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> ([String: Any], [String: Any]?, [String: Any]) {
-        // Native Swift calculation commented out - using only Flux
-        // let swiftStartTime = CFAbsoluteTimeGetCurrent()
-        // let swiftMetrics = computeBehavioralMetrics(data: data, durationMs: durationMs, notificationCount: notificationCount, callCount: callCount)
-        // let swiftTimeMs = Int64((CFAbsoluteTimeGetCurrent() - swiftStartTime) * 1000)
-        // print("BehaviorSDK: Computed metrics using Swift (Calculation) - \(swiftTimeMs)ms")
-        
-        // Compute Flux (Rust) - required, fail if unavailable
-        var fluxMetrics: [String: Any]? = nil
-        var fluxTimeMs: Int64 = 0
-        let fluxAvailable = FluxBridge.shared.isAvailable
-        
-        if fluxAvailable {
-            do {
-                let fluxStartTime = CFAbsoluteTimeGetCurrent()
-                
-            // Convert events to synheart-flux JSON format
-            let eventTuples = data.events.map { event in
-                (timestamp: event.timestamp, eventType: event.eventType, metrics: event.metrics)
-            }
+    /// Returns a dictionary of behavioral metric keys to values, computed from the raw events.
+    private func computeBehavioralMetricsFromEvents(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> [String: Any] {
+        let durationSeconds = Double(durationMs) / 1000.0
+        if durationSeconds <= 0 {
+            return [
+                "interaction_intensity": 0.0,
+                "task_switch_rate": 0.0,
+                "task_switch_cost": 0,
+                "idle_time_ratio": 0.0,
+                "active_time_ratio": 0.0,
+                "notification_load": 0.0,
+                "burstiness": 0.0,
+                "behavioral_distraction_score": 0.0,
+                "focus_hint": 0.0,
+                "fragmented_idle_ratio": 0.0,
+                "scroll_jitter_rate": 0.0,
+                "deep_focus_blocks": [] as [[String: Any]]
+            ]
+        }
 
-            let fluxJson = convertEventsToFluxJson(
-                sessionId: data.sessionId,
-                deviceId: UIDevice.current.identifierForVendor?.uuidString ?? "ios-device",
-                timezone: TimeZone.current.identifier,
-                startTime: Date(timeIntervalSince1970: data.startTime / 1000),
-                endTime: Date(timeIntervalSince1970: data.endTime / 1000),
-                events: eventTuples
-            )
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
-                print("BehaviorSDK: Calling FluxBridge.behaviorToHsi with JSON length: \(fluxJson.count)")
-                
-                // DEBUG: Log the JSON being sent to Flux (first 1000 chars)
-                let jsonPreview = fluxJson.count > 1000 ? 
-                    String(fluxJson.prefix(1000)) + "..." : fluxJson
-                print("BehaviorSDK: Flux JSON preview: \(jsonPreview)")
-                
-                // Call Rust to compute HSI metrics
-                if let hsiJson = FluxBridge.shared.behaviorToHsi(fluxJson) {
-                    print("BehaviorSDK: Got HSI JSON from Rust, length: \(hsiJson.count)")
-                    
-                    // DEBUG: Log HSI JSON preview to see scroll jitter calculation
-                    let hsiPreview = hsiJson.count > 2000 ? 
-                        String(hsiJson.prefix(2000)) + "..." : hsiJson
-                    print("BehaviorSDK: HSI JSON preview: \(hsiPreview)")
-                    
-                    if let metrics = extractBehavioralMetricsFromHsi(hsiJson) {
-                        fluxTimeMs = Int64((CFAbsoluteTimeGetCurrent() - fluxStartTime) * 1000)
-                        fluxMetrics = metrics
-                        print("BehaviorSDK: Successfully computed metrics using synheart-flux (Flux) - \(fluxTimeMs)ms")
-                } else {
-                        fluxTimeMs = Int64((CFAbsoluteTimeGetCurrent() - fluxStartTime) * 1000)
-                        print("BehaviorSDK: Failed to extract metrics from HSI JSON")
-            }
-        } else {
-                    fluxTimeMs = Int64((CFAbsoluteTimeGetCurrent() - fluxStartTime) * 1000)
-                    print("BehaviorSDK: Rust computation returned nil (took \(fluxTimeMs)ms)")
+        // Calculate interaction intensity from event counts
+        let tapEvents = data.events.filter { $0.eventType == "tap" }
+        let scrollEvents = data.events.filter { $0.eventType == "scroll" }
+        let typingEvents = data.events.filter { $0.eventType == "typing" }
+        let totalInteractions = tapEvents.count + scrollEvents.count + typingEvents.count
+        let interactionIntensity = min(1.0, max(0.0, Double(totalInteractions) / durationSeconds))
+
+        // Task switch rate
+        let taskSwitchRate = durationSeconds > 0 ?
+            min(100.0, max(0.0, Double(data.appSwitchCount) / (durationSeconds / 60.0))) : 0.0
+
+        // Estimate idle time from gaps between events
+        let sortedEvents = data.events.sorted { $0.timestamp < $1.timestamp }
+        var totalIdleMs: Double = 0
+        let idleThresholdMs: Double = 5000 // 5 second idle threshold
+        for i in 1..<sortedEvents.count {
+            if let prevDate = formatter.date(from: sortedEvents[i - 1].timestamp),
+               let currDate = formatter.date(from: sortedEvents[i].timestamp) {
+                let gap = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
+                if gap > idleThresholdMs {
+                    totalIdleMs += gap
                 }
-            } catch {
-                print("BehaviorSDK: Flux computation failed: \(error.localizedDescription)")
-                // Don't throw - just log the error and continue with Calculation results
             }
-            } else {
-            print("BehaviorSDK: Flux is not available - skipping Flux computation")
         }
-        
-        // Build performance info with Flux execution time only
-        var performanceInfo: [String: Any] = [:]
-        if let fluxMetrics = fluxMetrics {
-            performanceInfo["flux_execution_time_ms"] = fluxTimeMs
-            print("BehaviorSDK: Computed metrics using Flux (Rust) - \(fluxTimeMs)ms")
+        let idleTimeRatio = durationMs > 0 ? min(1.0, max(0.0, totalIdleMs / Double(durationMs))) : 0.0
+        let activeTimeRatio = 1.0 - idleTimeRatio
+
+        // Notification load
+        let notificationLoad = durationSeconds > 0 ?
+            min(1.0, max(0.0, Double(notificationCount) / (durationSeconds / 60.0))) : 0.0
+
+        // Burstiness: (sigma - mu) / (sigma + mu) remapped to [0,1]
+        var burstiness = 0.0
+        if sortedEvents.count >= 2 {
+            var intervals: [Double] = []
+            for i in 1..<sortedEvents.count {
+                if let prevDate = formatter.date(from: sortedEvents[i - 1].timestamp),
+                   let currDate = formatter.date(from: sortedEvents[i].timestamp) {
+                    let interval = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
+                    intervals.append(interval)
+                }
+            }
+            if !intervals.isEmpty {
+                let mean = intervals.reduce(0, +) / Double(intervals.count)
+                let variance = intervals.map { pow($0 - mean, 2) }.reduce(0, +) / Double(intervals.count)
+                let stdDev = sqrt(variance)
+                if mean + stdDev > 0 {
+                    burstiness = ((stdDev - mean) / (stdDev + mean) + 1.0) / 2.0 // Remap from [-1,1] to [0,1]
+                }
+            }
         }
-        
-        // Return empty dictionary for calculationMetrics (not used anymore)
-        return ([String: Any](), fluxMetrics, performanceInfo)
+
+        // Scroll jitter rate
+        var scrollJitterRate = 0.0
+        if scrollEvents.count >= 2 {
+            let velocities = scrollEvents.compactMap { ($0.metrics["velocity"] as? NSNumber)?.doubleValue }
+            if velocities.count >= 2 {
+                let diffs = zip(velocities, velocities.dropFirst()).map { abs($1 - $0) }
+                let avgVelocity = velocities.reduce(0, +) / Double(velocities.count)
+                if avgVelocity > 0 {
+                    let avgDiff = diffs.reduce(0, +) / Double(diffs.count)
+                    scrollJitterRate = min(1.0, max(0.0, avgDiff / avgVelocity))
+                }
+            }
+        }
+
+        return [
+            "interaction_intensity": interactionIntensity,
+            "task_switch_rate": taskSwitchRate,
+            "task_switch_cost": 0, // Requires more sophisticated measurement
+            "idle_time_ratio": idleTimeRatio,
+            "active_time_ratio": activeTimeRatio,
+            "notification_load": notificationLoad,
+            "burstiness": burstiness,
+            "behavioral_distraction_score": 0.0, // Requires ML model
+            "focus_hint": 0.0, // Requires ML model
+            "fragmented_idle_ratio": 0.0,
+            "scroll_jitter_rate": scrollJitterRate,
+            "deep_focus_blocks": [] as [[String: Any]]
+        ]
     }
 
 
@@ -640,7 +640,7 @@ public class BehaviorSDK {
             ($0.metrics["action"] as? String) == "ignored"
         }.count
         
-        // Compute clipboard summary (tracked separately, not sent to Flux)
+        // Compute clipboard summary
         let clipboardEvents = filteredEvents.filter { $0.eventType == "clipboard" }
         let clipboardCount = clipboardEvents.count
         let clipboardCopyCount = clipboardEvents.filter {
@@ -652,37 +652,24 @@ public class BehaviorSDK {
         let clipboardCutCount = clipboardEvents.filter {
             ($0.metrics["action"] as? String) == "cut"
         }.count
-        
-        // Calculate Clipboard Activity Rate
-        // correction_rate and clipboard_activity_rate come from Flux
 
-        // Compute behavioral metrics using Flux (Rust) - same as endSession()
-        let (_, fluxMetrics, _) = computeBehavioralMetricsWithFlux(
+        // Compute behavioral metrics from events
+        let allMetrics = computeBehavioralMetricsFromEvents(
             data: tempData,
             durationMs: duration,
             notificationCount: notificationCount,
             callCount: callCount
         )
-        
-        // Require Flux metrics - fail if not available
-        guard let fluxMetrics = fluxMetrics else {
-            throw NSError(
-                domain: "BehaviorSDK",
-                code: 500,
-                userInfo: [NSLocalizedDescriptionKey: "Flux is required but metrics are not available for time range calculation"]
-            )
-        }
-        
-        // Extract behavioral metrics from Flux results (excluding typing summary)
+
+        // Separate behavioral metrics from typing summary
         var behavioralMetrics: [String: Any] = [:]
-        for (key, value) in fluxMetrics {
+        for (key, value) in allMetrics {
             if key != "typing_session_summary" {
                 behavioralMetrics[key] = value
             }
         }
-        
-        // Extract typing session summary from Flux results (correction_rate and clipboard_activity_rate from Flux)
-        let typingSessionSummary = fluxMetrics["typing_session_summary"] as? [String: Any] ?? [
+
+        let typingSessionSummary = allMetrics["typing_session_summary"] as? [String: Any] ?? [
             "typing_session_count": 0,
             "average_keystrokes_per_session": 0.0,
             "average_typing_session_duration": 0.0,

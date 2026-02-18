@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -600,7 +602,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
   DateTime? _sessionStartTime;
   DateTime? _lastKeystrokeTime;
   int _previousLength = 0;
-  List<int> _interKeyLatencies =
+  final List<int> _interKeyLatencies =
       []; // Store latencies in milliseconds (only actual intervals, no 0 for first keystroke)
   int _backspaceCount = 0; // Track number of backspace/delete operations
   int _pasteCount = 0;
@@ -911,9 +913,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
             : null;
 
         // Create a unique event ID for this copy operation based on selection
-        final selectionKey = _lastSelection!.start.toString() +
-            '_' +
-            _lastSelection!.end.toString();
+        final selectionKey = '${_lastSelection!.start}_${_lastSelection!.end}';
         final copyEventId =
             'copy_${selectionKey}_${now.millisecondsSinceEpoch}';
 

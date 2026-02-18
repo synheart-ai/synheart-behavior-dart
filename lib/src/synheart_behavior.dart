@@ -1,6 +1,7 @@
 import 'dart:async';
 // dart:io was only used for Platform in _generateDeviceId (commented out)
 // import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'models/behavior_config.dart';
@@ -38,7 +39,7 @@ class SynheartBehavior {
   // final BehaviorFeatureExtractor _featureExtractor = BehaviorFeatureExtractor();
   // Timer? _windowUpdateTimer;
 
-  // User/device IDs - only used for HSI payloads (window features)
+  // User/device IDs - commented out (not currently used)
   // String? _userId;
   // String? _deviceId;
 
@@ -73,27 +74,29 @@ class SynheartBehavior {
   /// This method must be called before using any other SDK methods.
   /// It sets up the native platform channels and starts collecting behavioral signals.
   static Future<SynheartBehavior> initialize({BehaviorConfig? config}) async {
-    final behavior = SynheartBehavior._(config ?? const BehaviorConfig());
+    final effectiveConfig = config ?? const BehaviorConfig();
+    final behavior = SynheartBehavior._(effectiveConfig);
 
     try {
       // Set up event stream listener
       _channel.setMethodCallHandler(behavior._handleMethodCall);
 
       // Initialize native SDK
-      await _channel.invokeMethod('initialize', config?.toJson() ?? {});
+      await _channel.invokeMethod('initialize', effectiveConfig.toJson());
 
       // Load motion state inference model
-      try {
-        await behavior._motionStateInference.loadModel();
-      } catch (e) {
-        print('Warning: Failed to load motion state inference model: $e');
-        // Continue initialization even if model loading fails
+      if (effectiveConfig.enableMotionLite) {
+        try {
+          await behavior._motionStateInference.loadModel();
+        } catch (_) {
+          // Continue initialization even if model loading fails
+        }
       }
 
       // Window features - commented out (not needed for real-time event tracking)
       // behavior._startWindowUpdates();
 
-      // User/device IDs - only used for HSI payloads (window features)
+      // User/device IDs - commented out (not currently used)
       // behavior._userId = config?.userId ?? SynheartBehavior._generateUserId();
       // behavior._deviceId =
       //     config?.deviceId ?? SynheartBehavior._generateDeviceId();
@@ -262,13 +265,17 @@ class SynheartBehavior {
       var summary = BehaviorSessionSummary.fromJson(resultMap);
       // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
-      // Run motion state inference if motion data is available
-      if (summary.motionData != null && summary.motionData!.isNotEmpty) {
+      // Run motion state inference if enabled and motion data is available
+      if (_config.enableMotionLite &&
+          summary.motionData != null &&
+          summary.motionData!.isNotEmpty) {
         if (!_motionStateInference.isLoaded) {
           try {
             await _motionStateInference.loadModel();
           } catch (e) {
-            print('ERROR: Failed to load model: $e');
+            if (kDebugMode) {
+              debugPrint('SynheartBehavior: Failed to load motion model: $e');
+            }
           }
         }
 
@@ -299,7 +306,9 @@ class SynheartBehavior {
               performanceInfo: summary.performanceInfo,
             );
           } catch (e) {
-            print('ERROR: Failed to run motion state inference: $e');
+            if (kDebugMode) {
+              debugPrint('SynheartBehavior: Motion inference failed: $e');
+            }
             // Continue without motion state if inference fails
           }
         }
@@ -312,8 +321,10 @@ class SynheartBehavior {
 
       return summary;
     } catch (e, stackTrace) {
-      // print('Error ending session: $e');
-      print('Stack trace: $stackTrace');
+      if (kDebugMode) {
+        debugPrint('SynheartBehavior: endSession failed: $e');
+        debugPrint('$stackTrace');
+      }
       throw Exception('Failed to end session: $e ');
     }
   }
@@ -548,15 +559,18 @@ class SynheartBehavior {
       );
       var metrics = Map<String, dynamic>.from(result as Map);
 
-      // Run motion state inference if motion data is available
-      if (metrics['motion_data'] != null &&
+      // Run motion state inference if enabled and motion data is available
+      if (_config.enableMotionLite &&
+          metrics['motion_data'] != null &&
           metrics['motion_data'] is List &&
           (metrics['motion_data'] as List).isNotEmpty) {
         if (!_motionStateInference.isLoaded) {
           try {
             await _motionStateInference.loadModel();
           } catch (e) {
-            print('Warning: Failed to load motion state model: $e');
+            if (kDebugMode) {
+              debugPrint('SynheartBehavior: Failed to load motion model: $e');
+            }
             // Continue without motion state if model loading fails
           }
         }
@@ -583,9 +597,12 @@ class SynheartBehavior {
             // Update metrics with computed motion state
             metrics['motion_state'] = motionState.toJson();
           } catch (e, stackTrace) {
-            print(
-                'ERROR: Failed to run motion state inference for on-demand: $e');
-            print('Stack trace: $stackTrace');
+            if (kDebugMode) {
+              debugPrint(
+                'SynheartBehavior: Motion inference failed for on-demand: $e',
+              );
+              debugPrint('$stackTrace');
+            }
             // Continue without motion state if inference fails
           }
         }
@@ -645,30 +662,7 @@ class SynheartBehavior {
   //   );
   // }
   //
-  // /// Convert window features to HSI (Human State Inference) payload format.
-  // ///
-  // /// Returns a JSON-compatible map matching the Behavior → HSI Fusion Table specification.
-  // ///
-  // /// Example:
-  // /// ```dart
-  // /// final features = behavior.getWindowFeatures(WindowType.short);
-  // /// if (features != null) {
-  // ///   final payload = behavior.toHSIPayload(features);
-  // ///   // Send payload to HSI service
-  // /// }
-  // /// ```
-  // Map<String, dynamic>? toHSIPayload(BehaviorWindowFeatures? features) {
-  //   if (features == null || !_initialized) return null;
-  //
-  //   return features.toHSIPayload(
-  //     userId: _userId ?? SynheartBehavior._generateUserId(),
-  //     deviceId: _deviceId ?? SynheartBehavior._generateDeviceId(),
-  //     behaviorVersion: _config.behaviorVersion,
-  //     consentBehavior: _config.consentBehavior,
-  //   );
-  // }
-
-  // User/device ID generation - only used for HSI payloads (window features)
+  // User/device ID generation - commented out (not currently used)
   // /// Generate an anonymous user ID.
   // static String _generateUserId() {
   //   // Generate a simple anonymous ID (in production, use proper anonymization)

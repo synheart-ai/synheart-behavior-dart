@@ -1,3 +1,5 @@
+// ignore_for_file: non_constant_identifier_names
+
 /// Types of behavioral events that can be emitted by the SDK.
 enum BehaviorEventType {
   scroll,

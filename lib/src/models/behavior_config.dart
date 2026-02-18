@@ -20,15 +20,15 @@ class BehaviorConfig {
   /// Default: 10 seconds.
   final double maxIdleGapSeconds;
 
-  /// Anonymous user identifier for HSI payloads (e.g., "anon_43a8cd").
+  /// Anonymous user identifier (e.g., "anon_43a8cd").
   /// If null, will be auto-generated.
   final String? userId;
 
-  /// Device identifier for HSI payloads (e.g., "synheart_ios_14").
+  /// Device identifier (e.g., "synheart_ios_14").
   /// If null, will be auto-generated based on platform.
   final String? deviceId;
 
-  /// Behavior SDK version for HSI payloads (e.g., "1.0.0").
+  /// Behavior SDK version (e.g., "1.0.0").
   /// Default: "1.0.0"
   final String behaviorVersion;
 

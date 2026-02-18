@@ -1,4 +1,4 @@
-// ignore_for_file: avoid_print
+// ignore_for_file: avoid_print, unnecessary_brace_in_string_interps, deprecated_member_use, prefer_const_constructors
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:synheart_behavior/synheart_behavior.dart';
@@ -810,15 +810,7 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      if (widget.summary
-                              .performanceInfo!['flux_execution_time_ms'] !=
-                          null)
-                        _buildInfoRow(
-                          'Execution Time',
-                          '${widget.summary.performanceInfo!['flux_execution_time_ms'] as num? ?? 0} ms',
-                        )
-                      else
-                        _buildInfoRow(
+                      _buildInfoRow(
                           'Execution Time',
                           'Not available',
                         ),

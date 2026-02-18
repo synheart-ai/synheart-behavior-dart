@@ -23,11 +23,10 @@ These behavioral signals power downstream systems such as:
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
 - **On-Demand Metrics**: Calculate behavioral metrics for custom time ranges within sessions
-- **Motion State Prediction**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using ML model inference
+- **Motion State Prediction (optional)**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using on-device ML inference
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
-- **Platform Support**: iOS and Android with Flux (Rust) integration for HSI-compliant metrics
-- **Typing metrics from Flux**: Correction rate and clipboard activity rate computed by Flux; per-session backspace and copy/paste/cut counts sent to Flux for aggregation
+- **Platform Support**: iOS and Android
 
 ## 📦 Installation
 
@@ -35,7 +34,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  synheart_behavior: ^0.2.0
+  synheart_behavior: ^0.2.1
 ```
 
 Then run:
@@ -46,7 +45,9 @@ flutter pub get
 
 ### Platform Setup
 
-**synheart-flux is required!** The SDK requires synheart-flux **0.2.0** or later (Rust library) for behavioral metrics. See [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md) for detailed integration instructions.
+This plugin ships as a standard Flutter plugin with native iOS/Android implementations. No additional native binaries are required for basic behavioral metrics.
+
+If you enable motion-lite inference, the bundled ONNX model will be loaded automatically when `enableMotionLite` is enabled.
 
 For optional features (notifications and calls), see the [Permissions](#permissions) section below.
 
@@ -367,7 +368,7 @@ if (summary.motionState != null) {
 
 ### On-Demand Metrics Calculation
 
-Calculate behavioral metrics for a custom time range within a session. All metrics are computed using synheart-flux (Rust) for HSI compliance:
+Calculate behavioral metrics for a custom time range within a session:
 
 ```dart
 // Calculate metrics for a specific time range
@@ -377,7 +378,7 @@ final metrics = await behavior.calculateMetricsForTimeRange(
   sessionId: 'SESS-1767688063415',     // Optional: session ID (uses current if not provided)
 );
 
-// Access the calculated metrics (all computed by Flux)
+// Access the calculated metrics
 print('Total events: ${metrics['activity_summary']['total_events']}');
 print('App switches: ${metrics['activity_summary']['app_switch_count']}');
 print('Interaction intensity: ${metrics['behavioral_metrics']['interaction_intensity']}');
@@ -390,7 +391,7 @@ if (metrics['motion_state'] != null) {
 }
 ```
 
-**Note**: The time range must be within the session's start and end times. The SDK validates this automatically and will throw an error if the range is out of bounds. All behavioral metrics are computed using synheart-flux for HSI compliance and cross-platform consistency.
+**Note**: The time range must be within the session's start and end times. The SDK validates this automatically and will throw an error if the range is out of bounds.
 
 ### Current Statistics
 
@@ -417,7 +418,7 @@ if (behavior.isInitialized) {
 
 ### Core Behavioral Metrics
 
-Session-level outputs include (all computed by synheart-flux for HSI compliance):
+Session-level outputs include:
 
 - `interactionIntensity`: Overall interaction rate and engagement
 - `distractionScore`: Behavioral proxy for distraction (0-1)
@@ -430,18 +431,18 @@ Session-level outputs include (all computed by synheart-flux for HSI compliance)
 - `notificationLoad`: Notification pressure and response patterns
 - `scrollJitterRate`: Scroll pattern irregularity
 
-Typing session summary (from Flux) also includes:
+Typing session summary (when available) also includes:
 
-- `correctionRate`: Proportion of correction actions (backspace/delete) relative to typing taps and corrections; computed by Flux from per-session counts.
-- `clipboardActivityRate`: Proportion of clipboard actions (copy, paste, cut) relative to typing taps and clipboard actions; computed by Flux from per-session counts.
+- `correctionRate`: Proportion of correction actions (backspace/delete) relative to typing taps and corrections.
+- `clipboardActivityRate`: Proportion of clipboard actions (copy, paste, cut) relative to typing taps and clipboard actions.
 
-All metrics are bounded, normalized, numerically stable, and computed using synheart-flux (Rust) for cross-platform consistency and HSI compliance.
+All metrics are bounded, normalized, and numerically stable.
 
 ## ⚙️ Additional Features
 
 ### Text Field Widget
 
-The SDK provides a `BehaviorTextField` widget that tracks typing sessions and emits typing events with full metrics (keystrokes, backspace, copy/paste/cut counts). These are sent to Flux for correction rate and clipboard activity rate. Text content is never collected—only timing and action counts.
+The SDK provides a `BehaviorTextField` widget that tracks typing sessions and emits typing events with full metrics (keystrokes, backspace, copy/paste/cut counts). Text content is never collected—only timing and action counts.
 
 ```dart
 behavior.createBehaviorTextField(
@@ -512,7 +513,7 @@ The Synheart SDK is designed around privacy-by-design and data minimization prin
 
 ### Processing & Storage
 
-✅ **On-device computation by default**: Behavioral features and metrics are computed locally on the device using synheart-flux (Rust), ensuring HSI compliance and cross-platform consistency while minimizing data exposure.
+✅ **On-device computation by default**: Behavioral features and metrics are computed locally on the device, minimizing data exposure.
 
 ✅ **Ephemeral data handling**: Raw interaction events are processed in-memory and are not persisted in long-term storage unless explicitly configured for research or debugging purposes.
 
@@ -554,7 +555,6 @@ The SDK is designed for continuous background operation with minimal resource im
 **Solutions**:
 
 - Ensure you're calling `WidgetsFlutterBinding.ensureInitialized()` before `runApp()` if initializing in `main()`
-- Check that synheart-flux libraries are properly integrated (see [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md))
 - Verify Flutter version meets requirements (>=3.10.0)
 
 ### No Events Being Collected
@@ -586,8 +586,6 @@ The SDK is designed for continuous background operation with minimal resource im
 
 - Ensure the session was properly started
 - Check that the SDK is still initialized
-- Verify synheart-flux is properly integrated and loaded (check logs for "Flux is required but metrics are not available" errors)
-- Ensure synheart-flux libraries are present in the app bundle (see [SYNHEART_FLUX_INTEGRATION.md](SYNHEART_FLUX_INTEGRATION.md))
 - Verify native platform channel is working (check logs)
 - Try ending the session with a timeout wrapper
 
@@ -661,7 +659,7 @@ Israel Goytom
 - [Synheart Focus](https://github.com/synheart-ai/synheart-focus-dart) - Cognitive concentration inference
 - [Synheart Emotion](https://github.com/synheart-ai/synheart-emotion-dart) - Physiological emotion inference from biosignals
 - [Synheart Behavior (Parent)](https://github.com/synheart-ai/synheart-behavior) - Multi-platform SDK specification
-- [Synheart Flux](https://github.com/synheart-ai/synheart-flux) - Rust library for HSI-compliant behavioral metrics computation (required dependency)
+- [Synheart Flux](https://github.com/synheart-ai/synheart-flux) - HSI factory (separate system component)
 
 ## ⚖️ Patent Pending Notice
 
