@@ -811,9 +811,9 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
                       ),
                       const SizedBox(height: 12),
                       _buildInfoRow(
-                          'Execution Time',
-                          'Not available',
-                        ),
+                        'Execution Time',
+                        'Not available',
+                      ),
                     ],
                   ),
                 ),
