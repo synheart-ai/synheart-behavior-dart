@@ -2,6 +2,7 @@
 
 > On-device behavioral signal inference from digital interactions for Flutter applications
 
+[![CI](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml)
 [![pub.dev](https://img.shields.io/pub/v/synheart_behavior.svg)](https://pub.dev/packages/synheart_behavior)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://pub.dev/packages/synheart_behavior)
@@ -541,6 +542,51 @@ The SDK is designed for continuous background operation with minimal resource im
 - **Event processing**: < 500 μs per event
 - **UI blocking**: None (all processing on background threads)
 
+## 🏗️ Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  Your Flutter App                     │
+│                                                       │
+│  ┌─────────────────────────────────────────────────┐  │
+│  │         SynheartBehavior SDK                     │  │
+│  │                                                  │  │
+│  │  BehaviorConfig ──► SynheartBehavior.initialize()│  │
+│  │                           │                      │  │
+│  │       ┌───────────────────┼───────────────┐      │  │
+│  │       ▼                   ▼               ▼      │  │
+│  │  BehaviorGesture   Platform Channel  MotionState  │  │
+│  │  Detector          (Android/iOS)     Inference    │  │
+│  │  (scroll, tap,     (attention,       (ONNX ML,    │  │
+│  │   swipe, typing)    notif, call)      accel/gyro) │  │
+│  │       │                   │               │      │  │
+│  │       └─────────┬─────────┘───────────────┘      │  │
+│  │                 ▼                                 │  │
+│  │      Stream<BehaviorEvent>                        │  │
+│  │                 │                                 │  │
+│  │                 ▼                                 │  │
+│  │      BehaviorSession ──► BehaviorSessionSummary   │  │
+│  │      (events, stats,     (metrics, typing,        │  │
+│  │       windowing)          motion state)            │  │
+│  └─────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────┘
+         │
+         ▼ (passed to synheart-core for HSI ingestion)
+```
+
+Signals flow: **Gesture Detector / Platform Channel → Stream\<BehaviorEvent\> → BehaviorSession → Summary**.
+The SDK never generates HSI directly — it collects and normalizes behavioral signals.
+
+## 🧪 Testing
+
+```bash
+flutter test
+dart format --set-exit-if-changed .
+flutter analyze
+```
+
+Tests are in `test/` covering models (config, event, session, stats), SDK initialization, and platform channel integration.
+
 ## 📋 Requirements
 
 - **Dart SDK**: >=3.0.0 <4.0.0
@@ -633,7 +679,60 @@ The example app includes:
 
 ## 📚 API Reference
 
-For detailed API documentation, see the [pub.dev package page](https://pub.dev/packages/synheart_behavior).
+### SynheartBehavior
+
+```dart
+class SynheartBehavior {
+  static Future<SynheartBehavior> initialize({BehaviorConfig? config});
+  Future<void> dispose();
+
+  // Sessions
+  Future<BehaviorSession> startSession({String? sessionId});
+  // endSession is called via BehaviorSession.end()
+  Future<BehaviorStats> getCurrentStats();
+
+  // Events
+  Stream<BehaviorEvent> get onEvent;
+  Future<void> sendEvent(BehaviorEvent event);
+
+  // On-demand metrics
+  Future<Map<String, dynamic>> calculateMetricsForTimeRange({
+    required int startTimestampSeconds,
+    required int endTimestampSeconds,
+    String? sessionId,
+  });
+
+  // Permissions
+  Future<bool> checkNotificationPermission();
+  Future<bool> requestNotificationPermission();
+  Future<bool> checkCallPermission();
+  Future<void> requestCallPermission();
+
+  // Configuration
+  Future<void> updateConfig(BehaviorConfig config);
+  bool get isInitialized;
+  String? get currentSessionId;
+
+  // Flutter widgets
+  Widget wrapWithGestureDetector(Widget child);
+  Widget createBehaviorTextField({...});
+}
+```
+
+### Key Types
+
+| Type | Description |
+|---|---|
+| `BehaviorConfig` | SDK configuration (signals, batching, consent, motion) |
+| `BehaviorEvent` | Single behavioral event with type and payload |
+| `BehaviorSession` | Active session with `end()` → `BehaviorSessionSummary` |
+| `BehaviorSessionSummary` | Aggregated metrics (activity, behavioral, typing, motion, notification) |
+| `BehaviorStats` | Real-time metrics snapshot (velocity, cadence, tap rate) |
+| `BehaviorGestureDetector` | Flutter widget for gesture tracking |
+| `BehaviorTextField` | Flutter widget for typing event tracking |
+| `MotionStateInference` | ML-based motion classifier (LAYING, MOVING, SITTING, STANDING) |
+
+For full API docs, see the [pub.dev package page](https://pub.dev/packages/synheart_behavior).
 
 ## 🤝 Contributing
 
@@ -656,10 +755,12 @@ Israel Goytom
 
 ## 🔗 Related Projects
 
-- [Synheart Focus](https://github.com/synheart-ai/synheart-focus-dart) - Cognitive concentration inference
-- [Synheart Emotion](https://github.com/synheart-ai/synheart-emotion-dart) - Physiological emotion inference from biosignals
-- [Synheart Behavior (Parent)](https://github.com/synheart-ai/synheart-behavior) - Multi-platform SDK specification
-- [Synheart Flux](https://github.com/synheart-ai/synheart-flux) - HSI factory (separate system component)
+| Repository | Description |
+|---|---|
+| [synheart-behavior](https://github.com/synheart-ai/synheart-behavior) | Specification & docs (Source of Truth) |
+| [synheart-behavior-kotlin](https://github.com/synheart-ai/synheart-behavior-kotlin) | Android/Kotlin SDK |
+| [synheart-behavior-swift](https://github.com/synheart-ai/synheart-behavior-swift) | iOS/Swift SDK |
+| [synheart-behavior-chrome](https://github.com/synheart-ai/synheart-behavior-chrome) | Chrome extension |
 
 ## ⚖️ Patent Pending Notice
 
