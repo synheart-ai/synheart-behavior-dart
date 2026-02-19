@@ -365,7 +365,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
-        // Compute clipboard summary (counts only; correction_rate and clipboard_activity_rate come from Flux)
+        // Compute clipboard summary
         val clipboardEvents = data.events.filter { it.eventType == "clipboard" }
         val clipboardCount = clipboardEvents.size
         val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
@@ -373,19 +373,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
 
         // Compute behavioral metrics from events
-        // Use only Flux (Rust) calculations - native Kotlin calculations commented out
-        val (calculationMetrics, fluxMetrics, performanceInfo) =
-                computeBehavioralMetricsWithFlux(data, duration, notificationCount, callCount)
-
-        // Require Flux metrics - fail if not available
-        if (fluxMetrics == null) {
-            throw Exception("Flux is required but metrics are not available")
-        }
-
-        // Compute typing session summary
-        // Native Kotlin typing summary calculation commented out - using Flux typing summary
-        // instead
-        // val typingSessionSummary = computeTypingSessionSummary(data, duration)
+        val behavioralMetrics = computeBehavioralMetricsFromEvents(data, duration, notificationCount, callCount)
 
         // Collect motion data if enabled
         val motionData = motionSignalCollector.stopSession()
@@ -412,9 +400,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                         "total_events" to data.eventCount,
                                         "app_switch_count" to data.appSwitchCount
                                 ),
-                        "behavioral_metrics" to fluxMetrics!!, // Use Flux (Rust) results as primary
-                        // "behavioral_metrics_flux" removed - Flux is now the primary source
-                        "performance_info" to performanceInfo,
+                        "behavioral_metrics" to behavioralMetrics,
                         "notification_summary" to
                                 mapOf(
                                         "notification_count" to notificationCount,
@@ -440,45 +426,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 )
                 )
 
-        // Add typing session summary from Flux (primary source)
         var summary = summaryBase
-        // Native typing summary commented out - using Flux typing summary instead
-        // if (typingSessionSummary.isNotEmpty()) {
-        //     summary = summary + mapOf("typing_session_summary" to typingSessionSummary)
-        // }
 
-        // Extract Flux typing session summary (now primary source)
-        android.util.Log.d("BehaviorSDK", "=== FLUX TYPING SUMMARY EXTRACTION ===")
-        android.util.Log.d("BehaviorSDK", "fluxMetrics is null: ${fluxMetrics == null}")
-        if (fluxMetrics != null) {
-            android.util.Log.d("BehaviorSDK", "Flux metrics keys: ${fluxMetrics.keys}")
-            val typingSummaryRaw = fluxMetrics["typing_session_summary"]
-            android.util.Log.d("BehaviorSDK", "typing_session_summary raw value: $typingSummaryRaw")
-            android.util.Log.d(
-                    "BehaviorSDK",
-                    "typing_session_summary type: ${typingSummaryRaw?.javaClass?.simpleName}"
-            )
+        // Add typing session summary if available from behavioral metrics
+        val typingSummary = behavioralMetrics["typing_session_summary"] as? Map<String, Any>
+        if (typingSummary != null && typingSummary.isNotEmpty()) {
+            summary = summary + mapOf("typing_session_summary" to typingSummary)
         }
-        var fluxTypingSummary = fluxMetrics.get("typing_session_summary") as? Map<String, Any>
-        android.util.Log.d("BehaviorSDK", "fluxTypingSummary after cast: $fluxTypingSummary")
-        android.util.Log.d(
-                "BehaviorSDK",
-                "fluxTypingSummary is null: ${fluxTypingSummary == null}, isEmpty: ${fluxTypingSummary?.isEmpty()}"
-        )
-        if (fluxTypingSummary != null && fluxTypingSummary.isNotEmpty()) {
-            // correction_rate and clipboard_activity_rate come from Flux (no manual override)
-            android.util.Log.d(
-                    "BehaviorSDK",
-                    "Adding Flux typing summary to session result with keys: ${fluxTypingSummary.keys}"
-            )
-            summary = summary + mapOf("typing_session_summary" to fluxTypingSummary)
-        } else {
-            android.util.Log.d(
-                    "BehaviorSDK",
-                    "Flux typing summary not available or empty - NOT adding to summary"
-            )
-        }
-        android.util.Log.d("BehaviorSDK", "=== END FLUX TYPING SUMMARY EXTRACTION ===")
 
         // Add motion data if available
         if (motionData.isNotEmpty()) {
@@ -529,117 +483,118 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     }
 
     /**
-     * Compute behavioral metrics using Flux (Rust).
+     * Compute behavioral metrics from session events.
      *
-     * Returns a Triple of (calculationMetrics, fluxMetrics, performanceInfo) where:
-     * - calculationMetrics: Empty map (not used, kept for API compatibility)
-     * - fluxMetrics: Results from Rust (synheart-flux), or null if Flux is unavailable/failed
-     * - performanceInfo: Contains execution time for Flux computation
+     * Returns a map of behavioral metric keys to values, computed from the raw events.
      */
-    private fun computeBehavioralMetricsWithFlux(
+    private fun computeBehavioralMetricsFromEvents(
             data: SessionData,
             durationMs: Long,
             notificationCount: Int,
             callCount: Int
-    ): Triple<Map<String, Any>, Map<String, Any>?, Map<String, Any>> {
-        // Native Kotlin calculation commented out - using only Flux
-        // val kotlinStartTime = System.nanoTime()
-        // val kotlinMetrics = computeBehavioralMetrics(data, durationMs, notificationCount,
-        // callCount)
-        // val kotlinTimeMs = (System.nanoTime() - kotlinStartTime) / 1_000_000
-        // android.util.Log.d(
-        //         "BehaviorSDK",
-        //         "Computed metrics using Kotlin (Calculation) - ${kotlinTimeMs}ms"
-        // )
-
-        // Compute Flux (Rust) - required, fail if unavailable
-        var fluxMetrics: Map<String, Any>? = null
-        var fluxTimeMs: Long = 0
-        val fluxAvailable = FluxBridge.isAvailable()
-
-        if (fluxAvailable) {
-            try {
-                val fluxStartTime = System.nanoTime()
-
-                // Convert events to synheart-flux JSON format
-                val fluxJson =
-                        convertEventsToFluxJson(
-                    sessionId = data.sessionId,
-                    deviceId = "android-device", // TODO: Get actual device ID
-                    timezone = java.util.TimeZone.getDefault().id,
-                    startTimeMs = data.startTime,
-                    endTimeMs = data.endTime,
-                    events = data.events
-                )
-
-                android.util.Log.d(
-                        "BehaviorSDK",
-                        "Calling FluxBridge.behaviorToHsi with JSON length: ${fluxJson.length}"
-                )
-
-                // DEBUG: Log the JSON being sent to Flux (first 1000 chars)
-                val jsonPreview =
-                        if (fluxJson.length > 1000) {
-                            fluxJson.substring(0, 1000) + "..."
-                } else {
-                            fluxJson
-                        }
-                android.util.Log.d("BehaviorSDK", "Flux JSON preview: $jsonPreview")
-
-                val hsiJson = FluxBridge.behaviorToHsi(fluxJson)
-                if (hsiJson != null) {
-                    android.util.Log.d(
-                            "BehaviorSDK",
-                            "Got HSI JSON from Rust, length: ${hsiJson.length}"
-                    )
-
-                    // DEBUG: Log HSI JSON preview to see scroll jitter calculation
-                    val hsiPreview =
-                            if (hsiJson.length > 2000) {
-                                hsiJson.substring(0, 2000) + "..."
-                        } else {
-                                hsiJson
-                            }
-                    android.util.Log.d("BehaviorSDK", "HSI JSON preview: $hsiPreview")
-                    val metrics = extractBehavioralMetricsFromHsi(hsiJson)
-                    if (metrics != null) {
-                        fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
-                        fluxMetrics = metrics
-                        android.util.Log.d(
-                                "BehaviorSDK",
-                                "Successfully computed metrics using synheart-flux (Flux) - ${fluxTimeMs}ms"
-                        )
-                } else {
-                        fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
-                        android.util.Log.w("BehaviorSDK", "Failed to extract metrics from HSI JSON")
-                    }
-                        } else {
-                    fluxTimeMs = (System.nanoTime() - fluxStartTime) / 1_000_000
-                    android.util.Log.w(
-                            "BehaviorSDK",
-                            "Rust computation returned null (took ${fluxTimeMs}ms)"
-                    )
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("BehaviorSDK", "Flux computation failed: ${e.message}")
-                // Don't throw - just log the error and continue with Calculation results
-            }
-                    } else {
-            android.util.Log.d("BehaviorSDK", "Flux is not available - skipping Flux computation")
-        }
-
-        // Build performance info with Flux execution time only
-        val performanceInfo = mutableMapOf<String, Any>()
-        if (fluxMetrics != null) {
-            performanceInfo["flux_execution_time_ms"] = fluxTimeMs
-            android.util.Log.i(
-                    "BehaviorSDK",
-                    "Computed metrics using Flux (Rust) - ${fluxTimeMs}ms"
+    ): Map<String, Any> {
+        val durationSeconds = durationMs / 1000.0
+        if (durationSeconds <= 0) {
+            return mapOf(
+                "interaction_intensity" to 0.0,
+                "task_switch_rate" to 0.0,
+                "task_switch_cost" to 0,
+                "idle_time_ratio" to 0.0,
+                "active_time_ratio" to 0.0,
+                "notification_load" to 0.0,
+                "burstiness" to 0.0,
+                "behavioral_distraction_score" to 0.0,
+                "focus_hint" to 0.0,
+                "fragmented_idle_ratio" to 0.0,
+                "scroll_jitter_rate" to 0.0,
+                "deep_focus_blocks" to emptyList<Map<String, Any>>()
             )
         }
 
-        // Return empty map for calculationMetrics (not used anymore)
-        return Triple(mapOf<String, Any>(), fluxMetrics, performanceInfo)
+        // Calculate interaction intensity from event counts
+        val tapEvents = data.events.filter { it.eventType == "tap" }
+        val scrollEvents = data.events.filter { it.eventType == "scroll" }
+        val typingEvents = data.events.filter { it.eventType == "typing" }
+        val totalInteractions = tapEvents.size + scrollEvents.size + typingEvents.size
+        val interactionIntensity = (totalInteractions / durationSeconds).coerceIn(0.0, 1.0)
+
+        // Task switch rate
+        val taskSwitchRate = if (durationSeconds > 0) {
+            (data.appSwitchCount / (durationSeconds / 60.0)).coerceIn(0.0, 100.0)
+        } else 0.0
+
+        // Estimate idle time from gaps between events
+        val sortedEvents = data.events.sortedBy { it.timestamp }
+        var totalIdleMs = 0L
+        val idleThresholdMs = 5000L // 5 second idle threshold
+        for (i in 1 until sortedEvents.size) {
+            try {
+                val prevTime = Instant.parse(sortedEvents[i - 1].timestamp).toEpochMilli()
+                val currTime = Instant.parse(sortedEvents[i].timestamp).toEpochMilli()
+                val gap = currTime - prevTime
+                if (gap > idleThresholdMs) {
+                    totalIdleMs += gap
+                }
+            } catch (e: Exception) {
+                // Skip invalid timestamps
+            }
+        }
+        val idleTimeRatio = if (durationMs > 0) (totalIdleMs.toDouble() / durationMs).coerceIn(0.0, 1.0) else 0.0
+        val activeTimeRatio = 1.0 - idleTimeRatio
+
+        // Notification load
+        val notificationLoad = if (durationSeconds > 0) {
+            (notificationCount / (durationSeconds / 60.0)).coerceIn(0.0, 1.0)
+        } else 0.0
+
+        // Burstiness: (sigma - mu) / (sigma + mu) remapped to [0,1]
+        val burstiness = if (sortedEvents.size >= 2) {
+            val intervals = mutableListOf<Double>()
+            for (i in 1 until sortedEvents.size) {
+                try {
+                    val prevTime = Instant.parse(sortedEvents[i - 1].timestamp).toEpochMilli()
+                    val currTime = Instant.parse(sortedEvents[i].timestamp).toEpochMilli()
+                    intervals.add((currTime - prevTime).toDouble())
+                } catch (e: Exception) {
+                    // Skip
+                }
+            }
+            if (intervals.isNotEmpty()) {
+                val mean = intervals.average()
+                val variance = intervals.map { (it - mean) * (it - mean) }.average()
+                val stdDev = kotlin.math.sqrt(variance)
+                if (mean + stdDev > 0) {
+                    ((stdDev - mean) / (stdDev + mean) + 1.0) / 2.0 // Remap from [-1,1] to [0,1]
+                } else 0.0
+            } else 0.0
+        } else 0.0
+
+        // Scroll jitter rate
+        val scrollJitterRate = if (scrollEvents.size >= 2) {
+            val velocities = scrollEvents.mapNotNull {
+                (it.metrics["velocity"] as? Number)?.toDouble()
+            }
+            if (velocities.size >= 2) {
+                val diffs = velocities.zipWithNext().map { kotlin.math.abs(it.second - it.first) }
+                val avgVelocity = velocities.average()
+                if (avgVelocity > 0) (diffs.average() / avgVelocity).coerceIn(0.0, 1.0) else 0.0
+            } else 0.0
+        } else 0.0
+
+        return mapOf(
+            "interaction_intensity" to interactionIntensity,
+            "task_switch_rate" to taskSwitchRate,
+            "task_switch_cost" to 0, // Requires more sophisticated measurement
+            "idle_time_ratio" to idleTimeRatio,
+            "active_time_ratio" to activeTimeRatio,
+            "notification_load" to notificationLoad,
+            "burstiness" to burstiness,
+            "behavioral_distraction_score" to 0.0, // Requires ML model
+            "focus_hint" to 0.0, // Requires ML model
+            "fragmented_idle_ratio" to 0.0,
+            "scroll_jitter_rate" to scrollJitterRate,
+            "deep_focus_blocks" to emptyList<Map<String, Any>>()
+        )
     }
 
     fun getCurrentStats(): BehaviorStats {
@@ -728,51 +683,40 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
-        // Compute clipboard summary (counts only; correction_rate and clipboard_activity_rate come from Flux)
+        // Compute clipboard summary
         val clipboardEvents = filteredEvents.filter { it.eventType == "clipboard" }
         val clipboardCount = clipboardEvents.size
         val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
         val clipboardPasteCount = clipboardEvents.count { it.metrics["action"] == "paste" }
         val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
 
-        // Compute behavioral metrics using Flux (Rust) - same as endSession()
-        val (_, fluxMetrics, _) =
-                computeBehavioralMetricsWithFlux(tempData, duration, notificationCount, callCount)
+        // Compute behavioral metrics from events
+        val allMetrics = computeBehavioralMetricsFromEvents(tempData, duration, notificationCount, callCount)
 
-        // Require Flux metrics - fail if not available
-        if (fluxMetrics == null) {
-            throw Exception(
-                    "Flux is required but metrics are not available for time range calculation"
-            )
+        // Separate behavioral metrics from typing summary
+        val behavioralMetrics = allMetrics.filterKeys { key ->
+            key != "typing_session_summary"
         }
 
-        // Extract behavioral metrics from Flux results
-        val behavioralMetrics =
-                fluxMetrics.filterKeys { key ->
-                    key != "typing_session_summary" // Separate typing summary
-                }
-
-        // Extract typing session summary from Flux results (correction_rate and clipboard_activity_rate from Flux)
-        val typingSessionSummary =
-                fluxMetrics["typing_session_summary"] as? Map<String, Any>
-                        ?: mapOf(
-                                "typing_session_count" to 0,
-                                "average_keystrokes_per_session" to 0.0,
-                                "average_typing_session_duration" to 0.0,
-                                "average_typing_speed" to 0.0,
-                                "average_typing_gap" to 0.0,
-                                "average_inter_tap_interval" to 0.0,
-                                "typing_cadence_stability" to 0.0,
-                                "burstiness_of_typing" to 0.0,
-                                "total_typing_duration" to 0,
-                                "active_typing_ratio" to 0.0,
-                                "typing_contribution_to_interaction_intensity" to 0.0,
-                                "deep_typing_blocks" to 0,
-                                "typing_fragmentation" to 0.0,
-                                "correction_rate" to 0.0,
-                                "clipboard_activity_rate" to 0.0,
-                                "typing_metrics" to emptyList<Map<String, Any>>()
-                        )
+        val typingSessionSummary = allMetrics["typing_session_summary"] as? Map<String, Any>
+                ?: mapOf(
+                        "typing_session_count" to 0,
+                        "average_keystrokes_per_session" to 0.0,
+                        "average_typing_session_duration" to 0.0,
+                        "average_typing_speed" to 0.0,
+                        "average_typing_gap" to 0.0,
+                        "average_inter_tap_interval" to 0.0,
+                        "typing_cadence_stability" to 0.0,
+                        "burstiness_of_typing" to 0.0,
+                        "total_typing_duration" to 0,
+                        "active_typing_ratio" to 0.0,
+                        "typing_contribution_to_interaction_intensity" to 0.0,
+                        "deep_typing_blocks" to 0,
+                        "typing_fragmentation" to 0.0,
+                        "correction_rate" to 0.0,
+                        "clipboard_activity_rate" to 0.0,
+                        "typing_metrics" to emptyList<Map<String, Any>>()
+                )
 
         // Get motion data for the time range
         val allMotionData: List<MotionSignalCollector.MotionDataPoint> =

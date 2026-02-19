@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
@@ -240,7 +242,7 @@ class MotionStateInference {
           final expectedName = featureOrder[i];
           final actualValue = orderedFeatures[i];
           print(
-              '  Index $i: ${expectedName} = ${actualValue.toStringAsFixed(6)}');
+              '  Index $i: $expectedName = ${actualValue.toStringAsFixed(6)}');
         }
       }
     }
@@ -292,7 +294,7 @@ class MotionStateInference {
         // Check if most features are zero (indicates missing sensor data)
         if (zeroCount > featureList.length * 0.9) {
           print(
-              'MotionStateInference: WARNING - ${zeroCount}/${featureList.length} features are zero! This suggests sensor data may not be collected properly.');
+              'MotionStateInference: WARNING - $zeroCount/${featureList.length} features are zero! This suggests sensor data may not be collected properly.');
           print(
               'MotionStateInference: Only $nonZeroCount features have non-zero values.');
         }

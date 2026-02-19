@@ -221,7 +221,7 @@ void main() {
               'session_id': 'test-session',
               'timestamp': DateTime.now().toUtc().toIso8601String(),
               'event_type': 'tap',
-              'metrics': {
+              'metrics': const {
                 'tap_duration_ms': 150,
                 'long_press': false,
               },
@@ -241,7 +241,7 @@ void main() {
               'session_id': 'test-session',
               'timestamp': DateTime.now().toUtc().toIso8601String(),
               'event_type': 'scroll',
-              'metrics': {
+              'metrics': const {
                 'velocity': 150.0,
                 'acceleration': 50.0,
                 'direction': 'down',
@@ -264,10 +264,9 @@ void main() {
   group('Disposal', () {
     test('dispose cleans up resources', () async {
       final behavior = await SynheartBehavior.initialize();
-      final session = await behavior.startSession();
+      await behavior.startSession();
 
       await behavior.dispose();
-      print(session);
 
       expect(behavior.isInitialized, false);
       expect(methodCalls.any((call) => call.method == 'dispose'), true);
