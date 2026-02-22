@@ -478,7 +478,7 @@ public class BehaviorSDK {
         let sortedEvents = data.events.sorted { $0.timestamp < $1.timestamp }
         var totalIdleMs: Double = 0
         let idleThresholdMs: Double = 5000 // 5 second idle threshold
-        for i in 1..<sortedEvents.count {
+        for i in 1..<max(1, sortedEvents.count) {
             if let prevDate = formatter.date(from: sortedEvents[i - 1].timestamp),
                let currDate = formatter.date(from: sortedEvents[i].timestamp) {
                 let gap = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
