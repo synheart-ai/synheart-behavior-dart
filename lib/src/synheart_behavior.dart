@@ -67,15 +67,26 @@ class SynheartBehavior {
   String? _currentSessionId;
   final MotionStateInference _motionStateInference = MotionStateInference();
 
+  /// Optional callback invoked immediately when an event is received from native,
+  /// before adding to the stream. Use this to avoid missing events that arrive
+  /// before stream listeners are attached.
+  void Function(BehaviorEvent)? _immediateEventCallback;
+
   SynheartBehavior._(this._config);
 
   /// Initialize the Synheart Behavioral SDK with the given configuration.
   ///
   /// This method must be called before using any other SDK methods.
   /// It sets up the native platform channels and starts collecting behavioral signals.
-  static Future<SynheartBehavior> initialize({BehaviorConfig? config}) async {
+  /// [onEventCallback] if set is called synchronously for each event from native
+  /// (before the event is added to [onEvent]), so the host never misses events.
+  static Future<SynheartBehavior> initialize({
+    BehaviorConfig? config,
+    void Function(BehaviorEvent)? onEventCallback,
+  }) async {
     final effectiveConfig = config ?? const BehaviorConfig();
     final behavior = SynheartBehavior._(effectiveConfig);
+    behavior._immediateEventCallback = onEventCallback;
 
     try {
       // Set up event stream listener
@@ -154,6 +165,21 @@ class SynheartBehavior {
     switch (call.method) {
       case 'onEvent':
         final eventData = call.arguments as Map<dynamic, dynamic>;
+        // Native sends nested map: {"event": {"event_type": "...", "metrics": {...}}}
+        final inner = eventData['event'] ?? eventData;
+        final innerMap = inner is Map ? inner as Map<dynamic, dynamic> : null;
+        final eventTypeStr = innerMap?['event_type'];
+        final metricsVal = innerMap?['metrics'];
+        if (eventTypeStr != null) {
+          print(
+            'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: event_type=$eventTypeStr metrics=$metricsVal',
+          );
+        } else {
+          final topKeys = eventData.keys.map((k) => k.toString()).toList();
+          print(
+            'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: (nested keys missing) topLevelKeys=$topKeys',
+          );
+        }
 
         try {
           // Convert the entire map structure properly, handling nested maps
@@ -175,12 +201,17 @@ class SynheartBehavior {
             // Even if no session, add events to window (they'll be used when session starts)
           }
 
+          // Notify immediate callback first so core never misses an event
+          _immediateEventCallback?.call(event);
           _eventController.add(event);
+          print('BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
           // Window features - commented out (not needed for real-time event tracking)
           // Always add to window aggregator (events are time-based, not session-based)
           // _windowAggregator.addEvent(event);
-        } catch (e) {
-          // Silently handle parsing errors to avoid console spam
+        } catch (e, st) {
+          print('BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parse error: $e');
+          debugPrint('[BehaviorSDK] onEvent parse error: $e');
+          debugPrint('[BehaviorSDK] stack: $st');
         }
         break;
       default:
