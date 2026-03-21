@@ -1,4 +1,4 @@
-// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: constant_identifier_names
 
 /// Types of behavioral events that can be emitted by the SDK.
 enum BehaviorEventType {
@@ -267,7 +267,7 @@ class BehaviorEvent {
     );
     final metricsRaw = eventData['metrics'];
     final metricsMap = metricsRaw is Map
-        ? Map<String, dynamic>.from(metricsRaw as Map)
+        ? Map<String, dynamic>.from(metricsRaw)
         : <String, dynamic>{};
 
     return BehaviorEvent(

@@ -2302,6 +2302,8 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
         return Colors.green;
       case BehaviorEventType.swipe:
         return Colors.orange;
+      case BehaviorEventType.app_switch:
+        return Colors.indigo;
       case BehaviorEventType.call:
         return Colors.red;
       case BehaviorEventType.notification:

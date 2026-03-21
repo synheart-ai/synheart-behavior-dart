@@ -167,18 +167,16 @@ class SynheartBehavior {
         final eventData = call.arguments as Map<dynamic, dynamic>;
         // Native sends nested map: {"event": {"event_type": "...", "metrics": {...}}}
         final inner = eventData['event'] ?? eventData;
-        final innerMap = inner is Map ? inner as Map<dynamic, dynamic> : null;
+        final innerMap = inner is Map<dynamic, dynamic> ? inner : null;
         final eventTypeStr = innerMap?['event_type'];
         final metricsVal = innerMap?['metrics'];
         if (eventTypeStr != null) {
-          print(
-            'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: event_type=$eventTypeStr metrics=$metricsVal',
-          );
+          debugPrint(
+              'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: event_type=$eventTypeStr metrics=$metricsVal');
         } else {
           final topKeys = eventData.keys.map((k) => k.toString()).toList();
-          print(
-            'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: (nested keys missing) topLevelKeys=$topKeys',
-          );
+          debugPrint(
+              'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent from native: (nested keys missing) topLevelKeys=$topKeys');
         }
 
         try {
@@ -204,13 +202,14 @@ class SynheartBehavior {
           // Notify immediate callback first so core never misses an event
           _immediateEventCallback?.call(event);
           _eventController.add(event);
-          print(
+          debugPrint(
               'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
           // Window features - commented out (not needed for real-time event tracking)
           // Always add to window aggregator (events are time-based, not session-based)
           // _windowAggregator.addEvent(event);
         } catch (e, st) {
-          print('BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parse error: $e');
+          debugPrint(
+              'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parse error: $e');
           debugPrint('[BehaviorSDK] onEvent parse error: $e');
           debugPrint('[BehaviorSDK] stack: $st');
         }
