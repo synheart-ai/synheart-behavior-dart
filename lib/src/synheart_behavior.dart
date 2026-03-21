@@ -204,7 +204,8 @@ class SynheartBehavior {
           // Notify immediate callback first so core never misses an event
           _immediateEventCallback?.call(event);
           _eventController.add(event);
-          print('BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
+          print(
+              'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
           // Window features - commented out (not needed for real-time event tracking)
           // Always add to window aggregator (events are time-based, not session-based)
           // _windowAggregator.addEvent(event);
