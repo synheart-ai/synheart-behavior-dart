@@ -193,7 +193,7 @@ class NotificationCollector(private var config: BehaviorConfig) {
 
         // Keep only last 100 notifications
         while (openedNotificationTimestamps.size > 100) {
-            openedNotificationTimestamps.removeFirst()
+            openedNotificationTimestamps.removeAt(0)
         }
 
         // Cancel the pending "ignored" task if notification is opened before 30 seconds
