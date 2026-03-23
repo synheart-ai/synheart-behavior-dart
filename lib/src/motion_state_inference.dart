@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
@@ -102,45 +104,197 @@ class MotionStateInference {
         print('MotionStateInference: Successfully loaded from regular path');
       }
 
-      // Parse features.txt: format is "1 tBodyAcc-mean()-X" or "1\ttBodyAcc-mean()-X"
+      // Parse features.txt.
+      // Supports both formats:
+      // 1) "1 tBodyAcc-mean()-X" (indexed)
+      // 2) "tBodyAccmeanX" (feature-only, one per line)
       final lines = featuresText.split('\n');
       final featureOrder = <String>[];
 
       for (final line in lines) {
         final trimmed = line.trim();
         if (trimmed.isEmpty) continue;
+        if (trimmed.startsWith('#')) continue;
 
-        // Extract feature name (everything after the number and whitespace)
-        // Format: "number featureName" or "number\tfeatureName"
-        // Use regex to find the first whitespace and take everything after it
+        // Indexed format: "number featureName" or "number\tfeatureName"
         final match = RegExp(r'^\d+\s+(.+)$').firstMatch(trimmed);
         if (match != null) {
-          final featureName = match.group(1)!.trim();
+          final featureName = _toModelFeatureName(match.group(1)!.trim());
           featureOrder.add(featureName);
-        } else {
-          // Fallback: try splitting on whitespace
-          final parts = trimmed.split(RegExp(r'\s+'));
-          if (parts.length >= 2) {
-            final featureName = parts.sublist(1).join(' ').trim();
-            featureOrder.add(featureName);
-          }
+          continue;
         }
+
+        // Feature-only format: each non-empty line is already a feature name.
+        // If there is whitespace but no numeric prefix, keep full line as-is.
+        featureOrder.add(_toModelFeatureName(trimmed));
       }
 
-      if (featureOrder.length != 561) {
+      // Some files include accidental duplicate trailing spaces/blank names.
+      final cleaned = featureOrder.where((f) => f.trim().isNotEmpty).toList();
+
+      if (cleaned.length != 561) {
         throw Exception(
-            'Expected 561 features in features.txt, got ${featureOrder.length}');
+          'Expected 561 features in features.txt, got ${cleaned.length}',
+        );
       }
 
-      _cachedFeatureOrder = featureOrder;
-      return featureOrder;
+      // Keep feature order exactly as file order.
+      _cachedFeatureOrder = cleaned;
+      return cleaned;
     } catch (e) {
       print('MotionStateInference: ERROR loading features.txt: $e');
       print(
-          'MotionStateInference: Falling back to alphabetical sort (may cause incorrect predictions!)');
+        'MotionStateInference: Falling back to alphabetical sort (may cause incorrect predictions!)',
+      );
       // Fallback: return empty list, will use alphabetical sort
       return [];
     }
+  }
+
+  /// Convert compact UCI-style feature names into Android extractor key format.
+  ///
+  /// Examples:
+  /// - `tBodyAccmeanX` -> `tBodyAcc-mean()-X`
+  /// - `tBodyAccMagarCoeff1` -> `tBodyAccMag-arCoeff()1`
+  /// - `fBodyAccbandsEnergy18.1` -> `fBodyAcc-bandsEnergy()-1,8-Y`
+  String _toModelFeatureName(String featureName) {
+    // Already in model/extractor format.
+    if (featureName.contains('-') || featureName.contains('(')) {
+      return featureName;
+    }
+
+    // Angle features (compact names at the end of UCI feature list).
+    switch (featureName) {
+      case 'angletBodyAccMeangravity':
+        return 'angle(tBodyAccMean,gravity)';
+      case 'angletBodyAccJerkMeangravityMean':
+        // Keep current Android extractor key (contains historical typo).
+        return 'angle(tBodyAccJerkMean),gravityMean)';
+      case 'angletBodyGyroMeangravityMean':
+        return 'angle(tBodyGyroMean,gravityMean)';
+      case 'angletBodyGyroJerkMeangravityMean':
+        return 'angle(tBodyGyroJerkMean,gravityMean)';
+      case 'angleXgravityMean':
+        return 'angle(X,gravityMean)';
+      case 'angleYgravityMean':
+        return 'angle(Y,gravityMean)';
+      case 'angleZgravityMean':
+        return 'angle(Z,gravityMean)';
+    }
+
+    // Axis metrics: ...<metric><axis>
+    final axisMetricsWithParens = <String>{
+      'mean',
+      'std',
+      'mad',
+      'max',
+      'min',
+      'energy',
+      'iqr',
+      'entropy',
+      'meanFreq',
+      'skewness',
+      'kurtosis',
+    };
+    for (final metric in axisMetricsWithParens) {
+      final m = RegExp(r'^([A-Za-z]+)' + metric + r'([XYZ])$')
+          .firstMatch(featureName);
+      if (m != null) {
+        return '${m.group(1)}-$metric()-${m.group(2)}';
+      }
+    }
+
+    final maxIndsAxis =
+        RegExp(r'^([A-Za-z]+)maxInds([XYZ])$').firstMatch(featureName);
+    if (maxIndsAxis != null) {
+      return '${maxIndsAxis.group(1)}-maxInds-${maxIndsAxis.group(2)}';
+    }
+
+    // Scalar metrics (magnitude features): ...<metric>
+    final scalarMetricsWithParens = <String>{
+      'mean',
+      'std',
+      'mad',
+      'max',
+      'min',
+      'sma',
+      'energy',
+      'iqr',
+      'entropy',
+      'meanFreq',
+      'skewness',
+      'kurtosis',
+    };
+    for (final metric in scalarMetricsWithParens) {
+      final m = RegExp(r'^([A-Za-z]+)' + metric + r'$').firstMatch(featureName);
+      if (m != null) {
+        return '${m.group(1)}-$metric()';
+      }
+    }
+
+    final maxIndsScalar =
+        RegExp(r'^([A-Za-z]+)maxInds$').firstMatch(featureName);
+    if (maxIndsScalar != null) {
+      return '${maxIndsScalar.group(1)}-maxInds';
+    }
+
+    // AR coefficients with axis: ...arCoeffX1
+    final arAxis =
+        RegExp(r'^([A-Za-z]+)arCoeff([XYZ])([1-4])$').firstMatch(featureName);
+    if (arAxis != null) {
+      return '${arAxis.group(1)}-arCoeff()-${arAxis.group(2)},${arAxis.group(3)}';
+    }
+
+    // AR coefficients (magnitude): ...arCoeff1
+    final arMag =
+        RegExp(r'^([A-Za-z]+)arCoeff([1-4])$').firstMatch(featureName);
+    if (arMag != null) {
+      return '${arMag.group(1)}-arCoeff()${arMag.group(2)}';
+    }
+
+    // Correlation features: ...correlationXY
+    final corr = RegExp(r'^([A-Za-z]+)correlation([XYZ])([XYZ])$')
+        .firstMatch(featureName);
+    if (corr != null) {
+      return '${corr.group(1)}-correlation()-${corr.group(2)},${corr.group(3)}';
+    }
+
+    // Bands energy compact form:
+    // - fBodyAccbandsEnergy18   -> X axis
+    // - fBodyAccbandsEnergy18.1 -> Y axis
+    // - fBodyAccbandsEnergy18.2 -> Z axis
+    final band = RegExp(r'^([A-Za-z]+)bandsEnergy([0-9]+)(?:\.(\d))?$')
+        .firstMatch(featureName);
+    if (band != null) {
+      final prefix = band.group(1)!;
+      final range = _decodeBandRange(band.group(2)!);
+      if (range != null) {
+        final suffix = band.group(3);
+        final axis = switch (suffix) {
+          '1' => 'Y',
+          '2' => 'Z',
+          _ => 'X',
+        };
+        return '$prefix-bandsEnergy()-$range-$axis';
+      }
+    }
+
+    return featureName;
+  }
+
+  String? _decodeBandRange(String compact) {
+    // Split compact token (e.g. "18", "116", "2548") into start,end in [1,64].
+    for (var split = 1; split < compact.length; split++) {
+      final left = compact.substring(0, split);
+      final right = compact.substring(split);
+      final start = int.tryParse(left);
+      final end = int.tryParse(right);
+      if (start == null || end == null) continue;
+      if (start >= 1 && end <= 64 && start < end) {
+        return '$start,$end';
+      }
+    }
+    return null;
   }
 
   /// Convert features map to ordered list of 561 doubles.
@@ -240,7 +394,7 @@ class MotionStateInference {
           final expectedName = featureOrder[i];
           final actualValue = orderedFeatures[i];
           print(
-              '  Index $i: ${expectedName} = ${actualValue.toStringAsFixed(6)}');
+              '  Index $i: $expectedName = ${actualValue.toStringAsFixed(6)}');
         }
       }
     }
@@ -292,7 +446,7 @@ class MotionStateInference {
         // Check if most features are zero (indicates missing sensor data)
         if (zeroCount > featureList.length * 0.9) {
           print(
-              'MotionStateInference: WARNING - ${zeroCount}/${featureList.length} features are zero! This suggests sensor data may not be collected properly.');
+              'MotionStateInference: WARNING - $zeroCount/${featureList.length} features are zero! This suggests sensor data may not be collected properly.');
           print(
               'MotionStateInference: Only $nonZeroCount features have non-zero values.');
         }

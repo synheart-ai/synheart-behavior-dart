@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Represents an active behavioral tracking session.
 class BehaviorSession {
   /// Unique session ID.
@@ -178,11 +180,11 @@ class DeepFocusBlock {
 }
 
 /// Helper function to parse deep_focus_blocks from JSON.
-/// Handles both cases: List<dynamic> (from Flux) and int (for backward compatibility).
+/// Handles both cases: List<dynamic> and int (for backward compatibility).
 List<DeepFocusBlock> _parseDeepFocusBlocks(dynamic value) {
   if (value == null) return [];
 
-  // If it's a list, parse as DeepFocusBlock objects (from Flux)
+  // If it's a list, parse as DeepFocusBlock objects
   if (value is List) {
     return value
         .map(
@@ -428,9 +430,9 @@ class TypingSessionSummary {
   final int deepTypingBlocks; // Number of deep typing blocks
   final double typingFragmentation; // Measure of typing fragmentation
   final double
-      clipboardActivityRate; // From Flux: (copy + paste + cut) / (typing_taps + copy + paste + cut)
+      clipboardActivityRate; // (copy + paste + cut) / (typing_taps + copy + paste + cut)
   final double
-      correctionRate; // From Flux: (backspace + delete) / (typing_tap_count + backspace + delete)
+      correctionRate; // (backspace + delete) / (typing_tap_count + backspace + delete)
   final List<TypingMetrics>
       individualTypingSessions; // List of individual typing sessions
 
@@ -480,25 +482,33 @@ class TypingSessionSummary {
     try {
       if (json['typing_metrics'] != null) {
         final metricsList = json['typing_metrics'] as List<dynamic>;
-        print(
-            'DEBUG TypingSessionSummary.fromJson: parsing ${metricsList.length} typing metrics');
+        if (kDebugMode) {
+          debugPrint(
+            'TypingSessionSummary.fromJson: parsing ${metricsList.length} typing metrics',
+          );
+        }
         individualTypingSessions = metricsList.map((e) {
           try {
             return TypingMetrics.fromJson(Map<String, dynamic>.from(e as Map));
           } catch (e, stackTrace) {
-            print('ERROR parsing individual TypingMetrics: $e');
-            print('Stack trace: $stackTrace');
-            print('Raw metric value: $e');
+            if (kDebugMode) {
+              debugPrint('TypingSessionSummary.fromJson: error: $e');
+              debugPrint('$stackTrace');
+            }
             rethrow;
           }
         }).toList();
-        print(
-            'DEBUG TypingSessionSummary.fromJson: successfully parsed ${individualTypingSessions.length} typing metrics');
+        if (kDebugMode) {
+          debugPrint(
+            'TypingSessionSummary.fromJson: parsed ${individualTypingSessions.length} typing metrics',
+          );
+        }
       }
     } catch (e, stackTrace) {
-      print('ERROR parsing typing_metrics array: $e');
-      print('Stack trace: $stackTrace');
-      print('Raw typing_metrics value: ${json['typing_metrics']}');
+      if (kDebugMode) {
+        debugPrint('TypingSessionSummary.fromJson: error parsing array: $e');
+        debugPrint('$stackTrace');
+      }
       // Continue with empty list instead of failing completely
       individualTypingSessions = [];
     }
@@ -572,7 +582,7 @@ class BehaviorSessionSummary {
   /// Activity summary.
   final ActivitySummary activitySummary;
 
-  /// Behavioral metrics (from Flux/Rust).
+  /// Behavioral metrics.
   final BehavioralMetrics behavioralMetrics;
 
   /// Notification summary.
@@ -581,13 +591,13 @@ class BehaviorSessionSummary {
   /// System state.
   final SystemState systemState;
 
-  /// Typing session summary (from Flux/Rust).
+  /// Typing session summary.
   final TypingSessionSummary? typingSessionSummary;
 
   /// Raw motion data (accelerometer and gyroscope arrays per timestamp).
   final List<MotionDataPoint>? motionData;
 
-  /// Performance information (Flux execution time).
+  /// Performance information.
   final Map<String, dynamic>? performanceInfo;
 
   BehaviorSessionSummary({

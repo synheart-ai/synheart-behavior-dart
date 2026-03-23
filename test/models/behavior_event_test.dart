@@ -69,11 +69,13 @@ void main() {
 
     group('BehaviorEventType', () {
       test('has all expected event types', () {
-        expect(BehaviorEventType.values.length, 7);
+        expect(BehaviorEventType.values.length, 8);
 
         expect(BehaviorEventType.values, contains(BehaviorEventType.scroll));
         expect(BehaviorEventType.values, contains(BehaviorEventType.tap));
         expect(BehaviorEventType.values, contains(BehaviorEventType.swipe));
+        expect(
+            BehaviorEventType.values, contains(BehaviorEventType.app_switch));
         expect(
             BehaviorEventType.values, contains(BehaviorEventType.notification));
         expect(BehaviorEventType.values, contains(BehaviorEventType.call));

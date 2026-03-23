@@ -43,7 +43,11 @@ class NotificationCollector(private var config: BehaviorConfig) {
      * Called when a notification is received. This should be called from
      * NotificationListenerService.onNotificationPosted.
      */
-    fun onNotificationReceived(notificationId: String? = null, packageName: String? = null) {
+    fun onNotificationReceived(
+            notificationId: String? = null,
+            packageName: String? = null,
+            isCall: Boolean = false
+    ) {
         val now = System.currentTimeMillis()
         val id = notificationId ?: "notif_${now}"
 
@@ -101,14 +105,17 @@ class NotificationCollector(private var config: BehaviorConfig) {
                     if (receivedNotificationTimestamps.containsKey(id)) {
                         receivedNotificationTimestamps.remove(id)
                         pendingIgnoredTasks.remove(id)
-                        eventHandler?.invoke(
-                                BehaviorEvent(
-                                        sessionId = "current",
-                                        timestamp = getIsoTimestamp(),
-                                        eventType = "notification",
-                                        metrics = mapOf("action" to "ignored")
+                eventHandler?.invoke(
+                        BehaviorEvent(
+                                sessionId = "current",
+                                timestamp = getIsoTimestamp(),
+                                eventType = if (isCall) "call" else "notification",
+                                metrics = mapOf(
+                                        "action" to if (isCall) "ignored" else "ignored",
+                                        "source" to if (isCall) "notification_call" else "notification"
                                 )
                         )
+                )
                     } else {
                         pendingIgnoredTasks.remove(id)
                     }
@@ -126,12 +133,16 @@ class NotificationCollector(private var config: BehaviorConfig) {
             }
 
             android.util.Log.d("NotificationCollector", "Step 3: Creating event")
+            val eventType = if (isCall) "call" else "notification"
             val event =
                     BehaviorEvent(
                             sessionId = "current",
                             timestamp = getIsoTimestamp(),
-                            eventType = "notification",
-                            metrics = mapOf("action" to "received")
+                            eventType = eventType,
+                            metrics = mapOf(
+                                    "action" to if (isCall) "ignored" else "received",
+                                    "source" to if (isCall) "notification_call" else "notification"
+                            )
                     )
 
             android.util.Log.d(
@@ -147,7 +158,18 @@ class NotificationCollector(private var config: BehaviorConfig) {
             } else {
                 android.util.Log.d("NotificationCollector", "Step 5: Calling eventHandler")
                 eventHandler?.invoke(event)
-                android.util.Log.d("NotificationCollector", "Step 6: eventHandler invoked")
+                // Grep-friendly: NOTIFICATION_COUNT shows when we actually count a notification
+                if (isCall) {
+                    android.util.Log.i(
+                            "NotificationCollector",
+                            "CALL_COUNT: +1 received package=$packageName"
+                    )
+                } else {
+                    android.util.Log.i(
+                            "NotificationCollector",
+                            "NOTIFICATION_COUNT: +1 received package=$packageName"
+                    )
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e(
@@ -168,8 +190,11 @@ class NotificationCollector(private var config: BehaviorConfig) {
                         BehaviorEvent(
                                 sessionId = "current",
                                 timestamp = getIsoTimestamp(),
-                                eventType = "notification",
-                                metrics = mapOf("action" to "ignored")
+                                eventType = if (isCall) "call" else "notification",
+                                metrics = mapOf(
+                                        "action" to if (isCall) "ignored" else "ignored",
+                                        "source" to if (isCall) "notification_call" else "notification"
+                                )
                         )
                 )
             } else {
@@ -185,7 +210,7 @@ class NotificationCollector(private var config: BehaviorConfig) {
      * Called when a notification is opened/tapped. This should be called from
      * NotificationListenerService.onNotificationRemoved when the removal reason is REASON_CLICK.
      */
-    fun onNotificationOpened(notificationId: String? = null) {
+    fun onNotificationOpened(notificationId: String? = null, isCall: Boolean = false) {
         if (!config.enableAttentionSignals) return
 
         val now = System.currentTimeMillis()
@@ -193,7 +218,7 @@ class NotificationCollector(private var config: BehaviorConfig) {
 
         // Keep only last 100 notifications
         while (openedNotificationTimestamps.size > 100) {
-            openedNotificationTimestamps.removeFirst()
+            openedNotificationTimestamps.removeAt(0)
         }
 
         // Cancel the pending "ignored" task if notification is opened before 30 seconds
@@ -212,14 +237,20 @@ class NotificationCollector(private var config: BehaviorConfig) {
             }
         }
 
-        android.util.Log.d("NotificationCollector", "NOTIFICATION OPENED!")
+        android.util.Log.d(
+                "NotificationCollector",
+                if (isCall) "CALL OPENED!" else "NOTIFICATION OPENED!"
+        )
 
         eventHandler?.invoke(
                 BehaviorEvent(
                         sessionId = "current",
                         timestamp = getIsoTimestamp(),
-                        eventType = "notification",
-                        metrics = mapOf("action" to "opened")
+                        eventType = if (isCall) "call" else "notification",
+                        metrics = mapOf(
+                                "action" to if (isCall) "answered" else "opened",
+                                "source" to if (isCall) "notification_call" else "notification"
+                        )
                 )
         )
     }
@@ -243,21 +274,54 @@ class NotificationCollector(private var config: BehaviorConfig) {
 class SynheartNotificationListenerService : NotificationListenerService() {
 
     companion object {
-        private var notificationCollector: NotificationCollector? = null
+        private val notificationCollectors = LinkedHashSet<NotificationCollector>()
 
         fun setNotificationCollector(collector: NotificationCollector?) {
+            // Backward-compatible API: treat as registration/unregistration.
+            if (collector == null) return
+            synchronized(notificationCollectors) { notificationCollectors.add(collector) }
             android.util.Log.d(
-                    "SynheartNotificationListenerService",
-                    "setNotificationCollector called: collector=${collector != null}, hashCode=${collector?.hashCode()}"
+                "SynheartNotificationListenerService",
+                "setNotificationCollector called: registered hashCode=${collector.hashCode()}, total=${notificationCollectors.size}"
             )
-            notificationCollector = collector
         }
+
+        fun removeNotificationCollector(collector: NotificationCollector?) {
+            if (collector == null) return
+            synchronized(notificationCollectors) { notificationCollectors.remove(collector) }
+            android.util.Log.d(
+                "SynheartNotificationListenerService",
+                "removeNotificationCollector called: removed hashCode=${collector.hashCode()}, total=${notificationCollectors.size}"
+            )
+        }
+
+        private fun snapshotCollectors(): List<NotificationCollector> {
+            synchronized(notificationCollectors) { return notificationCollectors.toList() }
+        }
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // If you never see this log, enable Settings > Apps > Notification access > Pulse Focus
+        android.util.Log.i(
+                "SynheartNotificationListenerService",
+                "NOTIFICATION_COUNT: onListenerConnected — notification access enabled, collectors=${snapshotCollectors().size}"
+        )
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        android.util.Log.d(
+                "SynheartNotificationListenerService",
+                "onListenerDisconnected: notification access revoked or service killed"
+        )
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         // Track all posted notifications (privacy: no content, only timing)
         if (sbn != null) {
+            val isCall = isCallNotification(sbn)
             // Filter out notifications that shouldn't be tracked
             if (!shouldTrackNotification(sbn)) {
                 android.util.Log.d(
@@ -272,11 +336,25 @@ class SynheartNotificationListenerService : NotificationListenerService() {
             // Also log tag and id for debugging
             val tag = sbn.tag
             val id = sbn.id
-            android.util.Log.d(
+            // Grep-friendly: NOTIFICATION_COUNT shows every posted notification we consider
+            android.util.Log.i(
                     "SynheartNotificationListenerService",
-                    "onNotificationPosted: key=$notificationId, tag=$tag, id=$id, package=$packageName"
+                    if (isCall)
+                            "CALL_COUNT: onNotificationPosted package=$packageName key=$notificationId"
+                    else
+                            "NOTIFICATION_COUNT: onNotificationPosted package=$packageName key=$notificationId"
             )
-            notificationCollector?.onNotificationReceived(notificationId, packageName)
+            val collectors = snapshotCollectors()
+            if (collectors.isEmpty()) {
+                android.util.Log.w(
+                    "SynheartNotificationListenerService",
+                    "onNotificationPosted: no registered collectors; dropping notification"
+                )
+            } else {
+                collectors.forEach { collector ->
+                    collector.onNotificationReceived(notificationId, packageName, isCall)
+                }
+            }
         } else {
             android.util.Log.w(
                     "SynheartNotificationListenerService",
@@ -288,9 +366,6 @@ class SynheartNotificationListenerService : NotificationListenerService() {
     /**
      * Determines if a notification should be tracked. Filters out:
      * - System notifications (android, com.android.systemui)
-     * - Silent notifications (LOW or MIN importance)
-     * - Persistent/ongoing notifications
-     * - Group summary notifications (to avoid duplicates)
      * - Notifications from the app itself (to avoid self-tracking)
      */
     private fun shouldTrackNotification(sbn: StatusBarNotification): Boolean {
@@ -299,16 +374,6 @@ class SynheartNotificationListenerService : NotificationListenerService() {
 
         // Filter out system notifications
         if (packageName == "android" || packageName == "com.android.systemui") {
-            return false
-        }
-
-        // Filter out group summary notifications (apps like Telegram, WhatsApp send these)
-        // Group summaries cause duplicate onNotificationPosted calls
-        if ((notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0) {
-            android.util.Log.d(
-                    "SynheartNotificationListenerService",
-                    "Filtered out group summary notification from $packageName"
-            )
             return false
         }
 
@@ -331,25 +396,27 @@ class SynheartNotificationListenerService : NotificationListenerService() {
             )
         }
 
-        // Filter out silent notifications (LOW or MIN importance)
-        // Get importance from RankingMap
-        val ranking = NotificationListenerService.Ranking()
-        val rankingMap = getCurrentRanking()
-        if (rankingMap != null && rankingMap.getRanking(sbn.key, ranking)) {
-            val importance = ranking.importance
-            if (importance == NotificationManager.IMPORTANCE_LOW ||
-                            importance == NotificationManager.IMPORTANCE_MIN
-            ) {
-                return false
-            }
-        }
-
-        // Filter out persistent/ongoing notifications
-        if ((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0) {
-            return false
-        }
+        // Keep behavior capture permissive so real-world notifications are not lost.
+        // We intentionally do NOT filter by:
+        // - group summary
+        // - low/min importance
+        // - ongoing event flags
+        // This may increase duplicates/noise, but ensures notification metrics
+        // (notification_count / notification_ignored) actually reflect delivered notifications.
+        android.util.Log.i(
+                "SynheartNotificationListenerService",
+                "NOTIFICATION_COUNT: accepted package=$packageName key=${sbn.key} flags=${notification.flags}"
+        )
 
         return true
+    }
+
+    private fun isCallNotification(sbn: StatusBarNotification): Boolean {
+        val notification = sbn.notification
+        val category = notification.category
+        if (category == Notification.CATEGORY_CALL) return true
+        val template = notification.extras?.getString(Notification.EXTRA_TEMPLATE)
+        return template?.contains("CallStyle") == true
     }
 
     override fun onNotificationRemoved(
@@ -363,7 +430,18 @@ class SynheartNotificationListenerService : NotificationListenerService() {
             // Only track if we would have tracked the notification when it was posted
             if (shouldTrackNotification(sbn)) {
                 val notificationId = sbn.key
-                notificationCollector?.onNotificationOpened(notificationId)
+                val isCall = isCallNotification(sbn)
+                val collectors = snapshotCollectors()
+                if (collectors.isEmpty()) {
+                    android.util.Log.w(
+                        "SynheartNotificationListenerService",
+                        "onNotificationRemoved(click): no registered collectors; dropping notification-opened"
+                    )
+                } else {
+                    collectors.forEach { collector ->
+                        collector.onNotificationOpened(notificationId, isCall = isCall)
+                    }
+                }
             }
         }
     }

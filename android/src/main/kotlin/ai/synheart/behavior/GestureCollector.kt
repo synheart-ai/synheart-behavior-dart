@@ -375,7 +375,7 @@ class GestureCollector(private var config: BehaviorConfig) {
     private fun emitTapEvent(tapDurationMs: Int, longPress: Boolean) {
         tapTimestamps.add(System.currentTimeMillis())
         while (tapTimestamps.size > 50) {
-            tapTimestamps.removeFirst()
+            tapTimestamps.removeAt(0)
         }
 
         if (eventHandler != null) {

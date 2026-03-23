@@ -41,7 +41,7 @@ SPEC CHECKSUMS:
   onnxruntime-c: 7f778680e96145956c0a31945f260321eed2611a
   onnxruntime-objc: 83d28b87525bd971259a66e153ea32b5d023de19
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
-  synheart_behavior: 79b81b6d5e9f0e608456a286dcf42d35af4558ef
+  synheart_behavior: fa9c900e62d6c237056e70bd30389899a5a1f4eb
 
 PODFILE CHECKSUM: c0915517eae1a513480956f02c7781054ca94770
 

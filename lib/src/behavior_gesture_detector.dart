@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -79,8 +81,8 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
           // 1200ms, _handleScroll will reset the timer and continue the same gesture.
           // This allows us to detect direction reversals across momentum stops.
           if (_scrollStartTime != null) {
-            print(
-                '📋 Scroll end notification received (ignoring - timer will finalize after ${_scrollStopThresholdMs}ms if no more updates)');
+            // print(
+            //     '📋 Scroll end notification received (ignoring - timer will finalize after ${_scrollStopThresholdMs}ms if no more updates)');
           }
           // Do nothing - let the timer handle finalization
         }
@@ -180,12 +182,12 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
             scrollDelta > 0 ? ScrollDirection.down : ScrollDirection.up;
         if (_scrollDirection != continuationDirection) {
           _hasDirectionReversal = true;
-          print(
-              '🔄 Direction reversal in continuation: $_scrollDirection -> $continuationDirection');
+          // print(
+          //     '🔄 Direction reversal in continuation: $_scrollDirection -> $continuationDirection');
         }
         _scrollDirection = continuationDirection; // Update to new direction
-        print(
-            '🔄 Scroll continuation: startPos=$_scrollStartPosition, currentPos=$currentPosition, direction=$_scrollDirection, delta=$scrollDelta');
+        // print(
+        //     '🔄 Scroll continuation: startPos=$_scrollStartPosition, currentPos=$currentPosition, direction=$_scrollDirection, delta=$scrollDelta');
       } else {
         // Start a completely new scroll (not a continuation)
         _scrollStartTime = now;
@@ -209,15 +211,15 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
         } else {
           _lastValidEndPosition = null; // Clear if starting at 0.0
         }
-        print('💾 Stored initial end position: $_initialEndPosition');
+        // print('💾 Stored initial end position: $_initialEndPosition');
         _hasDirectionReversal = false;
         // Use scrollDelta for initial direction
         _scrollDirection =
             scrollDelta > 0 ? ScrollDirection.down : ScrollDirection.up;
         // Initialize velocity tracking
         _lastVelocityTime = now;
-        print(
-            '📜 Scroll started: direction=$_scrollDirection, delta=$scrollDelta, startPos=$_scrollStartPosition, currentPos=$currentPosition, endPos=$_scrollEndPosition');
+        // print(
+        //     '📜 Scroll started: direction=$_scrollDirection, delta=$scrollDelta, startPos=$_scrollStartPosition, currentPos=$currentPosition, endPos=$_scrollEndPosition');
       }
     } else {
       // For subsequent updates, determine direction from both scrollDelta and position change
@@ -251,8 +253,8 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
           _scrollDirection != null &&
           _scrollDirection != newDirection) {
         _hasDirectionReversal = true;
-        print(
-            '🔄 Direction reversal detected DURING scroll: $_scrollDirection -> $newDirection (delta=$scrollDelta, posChange=$positionChange, currentPos=$currentPosition, lastPos=$_lastScrollPosition)');
+        // print(
+        //     '🔄 Direction reversal detected DURING scroll: $_scrollDirection -> $newDirection (delta=$scrollDelta, posChange=$positionChange, currentPos=$currentPosition, lastPos=$_lastScrollPosition)');
       }
 
       // Update direction if we have a valid new direction
@@ -349,23 +351,23 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
       // Fallback 1: Use last valid (non-zero) position
       // This is critical when scrolling reaches 0.0 - we need the last position before 0.0
       finalEndPosition = storedLastValidPosition;
-      print(
-          '⚠️ Using _lastValidEndPosition as fallback (scroll reached 0.0): $storedLastValidPosition');
+      // print(
+      //     '⚠️ Using _lastValidEndPosition as fallback (scroll reached 0.0): $storedLastValidPosition');
     } else if (storedLastPosition != 0.0) {
       // Fallback 2: Use last known position
       finalEndPosition = storedLastPosition;
-      print('⚠️ Using _lastScrollPosition as fallback: $storedLastPosition');
+      // print('⚠️ Using _lastScrollPosition as fallback: $storedLastPosition');
     } else if (storedInitialEndPosition != null &&
         storedInitialEndPosition != 0.0) {
       // Fallback 3: Use initial end position (for single-update scrolls)
       finalEndPosition = storedInitialEndPosition;
-      print(
-          '⚠️ Using _initialEndPosition as fallback: $storedInitialEndPosition');
+      // print(
+      //     '⚠️ Using _initialEndPosition as fallback: $storedInitialEndPosition');
     } else {
       // Last resort: Use start position (will result in 0 distance/velocity)
       finalEndPosition = _scrollStartPosition;
-      print(
-          '⚠️ WARNING: All end position values are 0.0 or null! Using start position (distance will be 0)');
+      // print(
+      //     '⚠️ WARNING: All end position values are 0.0 or null! Using start position (distance will be 0)');
     }
 
     // Calculate distance correctly for both directions
@@ -383,9 +385,9 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
       final velocity =
           (effectiveDistance / durationMs * 1000).clamp(0.0, 10000.0);
 
-      // Debug: Log the calculation details
-      print(
-          '📊 Scroll finalization: startPos=$_scrollStartPosition, endPos=$finalEndPosition (stored=$storedEndPosition, last=$storedLastPosition, lastValid=$storedLastValidPosition, initial=$storedInitialEndPosition), rawDistance=$rawDistance, distance=$distancePx, duration=${durationMs}ms, velocity=$velocity px/s');
+      // Debug: Log the calculation details (commented to reduce log noise)
+      // print(
+      //     '📊 Scroll finalization: startPos=$_scrollStartPosition, endPos=$finalEndPosition (stored=$storedEndPosition, last=$storedLastPosition, lastValid=$storedLastValidPosition, initial=$storedInitialEndPosition), rawDistance=$rawDistance, distance=$distancePx, duration=${durationMs}ms, velocity=$velocity px/s');
 
       // Calculate acceleration using proper physics formula
       // For constant acceleration from rest: a = 2d/t²
@@ -396,9 +398,9 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
           : 0.0;
       final clampedAcceleration = acceleration.clamp(0.0, 50000.0);
 
-      // Emit scroll event with calculated metrics
-      print(
-          '📤 Emitting scroll: direction=${_scrollDirection ?? ScrollDirection.down}, reversal=$_hasDirectionReversal, velocity=$velocity px/s, acceleration=$clampedAcceleration px/s², distance=$distancePx px');
+      // Emit scroll event with calculated metrics (commented to reduce log noise)
+      // print(
+      //     '📤 Emitting scroll: direction=${_scrollDirection ?? ScrollDirection.down}, reversal=$_hasDirectionReversal, velocity=$velocity px/s, acceleration=$clampedAcceleration px/s², distance=$distancePx px');
       _emitScrollEvent(
         velocity: velocity,
         acceleration: clampedAcceleration,
@@ -600,7 +602,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
   DateTime? _sessionStartTime;
   DateTime? _lastKeystrokeTime;
   int _previousLength = 0;
-  List<int> _interKeyLatencies =
+  final List<int> _interKeyLatencies =
       []; // Store latencies in milliseconds (only actual intervals, no 0 for first keystroke)
   int _backspaceCount = 0; // Track number of backspace/delete operations
   int _pasteCount = 0;
@@ -911,9 +913,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
             : null;
 
         // Create a unique event ID for this copy operation based on selection
-        final selectionKey = _lastSelection!.start.toString() +
-            '_' +
-            _lastSelection!.end.toString();
+        final selectionKey = '${_lastSelection!.start}_${_lastSelection!.end}';
         final copyEventId =
             'copy_${selectionKey}_${now.millisecondsSinceEpoch}';
 
