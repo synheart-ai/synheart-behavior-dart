@@ -103,7 +103,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
             statsCollector.recordEvent(event)
         }
 
-        // Set notification collector for the service
+        // Register notification collector for the service.
+        // Multiple SDK instances (main app + background worker) can coexist,
+        // so we must register/unregister without clobbering others.
         SynheartNotificationListenerService.setNotificationCollector(notificationCollector)
 
         android.util.Log.d(
@@ -825,7 +827,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         gestureCollector.dispose()
         notificationCollector.dispose()
         callCollector.dispose()
-        SynheartNotificationListenerService.setNotificationCollector(null)
+        SynheartNotificationListenerService.removeNotificationCollector(notificationCollector)
         ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
     }
 

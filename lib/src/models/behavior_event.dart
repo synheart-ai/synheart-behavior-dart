@@ -1,10 +1,11 @@
-// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: constant_identifier_names
 
 /// Types of behavioral events that can be emitted by the SDK.
 enum BehaviorEventType {
   scroll,
   tap,
   swipe,
+  app_switch,
   notification,
   call,
   typing,
@@ -259,20 +260,24 @@ class BehaviorEvent {
 
   factory BehaviorEvent.fromJson(Map<String, dynamic> json) {
     final eventData = json['event'] as Map<String, dynamic>? ?? json;
-    final eventTypeStr = eventData['event_type'] as String;
+    final eventTypeStr = eventData['event_type'] as String? ?? 'tap';
     final eventType = BehaviorEventType.values.firstWhere(
       (e) => e.name == eventTypeStr,
       orElse: () => BehaviorEventType.tap,
     );
+    final metricsRaw = eventData['metrics'];
+    final metricsMap = metricsRaw is Map
+        ? Map<String, dynamic>.from(metricsRaw)
+        : <String, dynamic>{};
 
     return BehaviorEvent(
       eventId: eventData['event_id'] as String?,
-      sessionId: eventData['session_id'] as String,
+      sessionId: eventData['session_id'] as String? ?? 'current',
       timestamp: eventData['timestamp'] != null
           ? DateTime.parse(eventData['timestamp'] as String)
           : null,
       eventType: eventType,
-      metrics: Map<String, dynamic>.from(eventData['metrics'] as Map),
+      metrics: metricsMap,
     );
   }
 
