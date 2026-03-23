@@ -119,11 +119,9 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
             self?.emitEvent(event: event.toDictionary())
         }
 
-        // Attach to root view if available
-        if let window = UIApplication.shared.windows.first,
-           let rootView = window.rootViewController?.view {
-            behaviorSDK?.attachToView(rootView)
-        }
+        // Native view attachment disabled — gesture/input events are captured
+        // on the Dart side via BehaviorGestureDetector. Re-enable when native
+        // collectors are optimized for Flutter's rendering pipeline.
 
         isInitialized = true
     }

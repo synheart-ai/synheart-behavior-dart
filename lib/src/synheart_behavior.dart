@@ -658,6 +658,7 @@ class SynheartBehavior {
   Widget wrapWithGestureDetector(Widget child) {
     return BehaviorGestureDetector(
       sessionId: _currentSessionId ?? "current",
+      behavior: this,
       onEvent: _handleFlutterEvent,
       child: child,
     );
