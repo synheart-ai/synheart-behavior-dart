@@ -15,7 +15,7 @@ class MotionSignalCollector {
     private var sessionStartTime: Double = 0
     
     // Raw sample buffers (thread-safe using DispatchQueue)
-    private let sampleQueue = DispatchQueue(label: "com.synheart.motion.samples", attributes: .concurrent)
+    private let sampleQueue = DispatchQueue(label: "ai.synheart.motion.samples", attributes: .concurrent)
     private var accelerometerSamples: [(timestamp: Double, x: Double, y: Double, z: Double)] = []
     private var gyroscopeSamples: [(timestamp: Double, x: Double, y: Double, z: Double)] = []
     
