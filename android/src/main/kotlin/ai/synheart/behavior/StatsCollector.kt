@@ -26,7 +26,7 @@ class StatsCollector {
     fun recordEvent(event: BehaviorEvent) {
         recentEvents.add(event)
         while (recentEvents.size > maxEvents) {
-            recentEvents.removeFirst()
+            recentEvents.removeAt(0)
         }
 
         // Update metrics based on new event types

@@ -87,7 +87,7 @@ class InputSignalCollector(private var config: BehaviorConfig) {
 
         // Keep only last 100 keystrokes
         while (keystrokeTimestamps.size > 100) {
-            keystrokeTimestamps.removeFirst()
+            keystrokeTimestamps.removeAt(0)
         }
 
         // Check if part of current burst
