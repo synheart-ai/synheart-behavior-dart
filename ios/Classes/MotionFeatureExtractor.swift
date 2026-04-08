@@ -146,9 +146,13 @@ class MotionFeatureExtractor {
      */
     private func calculateMagnitude(_ x: [Double], _ y: [Double], _ z: [Double]) -> [Double] {
         let minSize = min(x.count, min(y.count, z.count))
-        return (0..<minSize).map { i in
-            sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i])
+        var result = [Double]()
+        result.reserveCapacity(minSize)
+        for i in 0..<minSize {
+            let sumSq: Double = x[i] * x[i] + y[i] * y[i] + z[i] * z[i]
+            result.append(sqrt(sumSq))
         }
+        return result
     }
     
     /**
@@ -529,41 +533,10 @@ class MotionFeatureExtractor {
     }
     
     private func fft(_ data: [Double]) -> [Double] {
-        if data.isEmpty { return [] }
-        
-        // Use Accelerate framework for FFT
-        let n = data.count
-        let log2n = vDSP_Length(log2(Double(n)))
-        let fftSetup = vDSP_create_fftsetupD(log2n, FFTRadix(kFFTRadix2))
-        
-        guard let setup = fftSetup else {
-            // Fallback to simple implementation if Accelerate fails
-            return simpleFFT(data)
-        }
-        
-        defer { vDSP_destroy_fftsetupD(setup) }
-        
-        // Pad to next power of 2
-        let paddedSize = 1 << log2n
-        var padded = data + Array(repeating: 0.0, count: paddedSize - n)
-        
-        var realp = [Double](repeating: 0.0, count: paddedSize / 2)
-        var imagp = [Double](repeating: 0.0, count: paddedSize / 2)
-        
-        var splitComplex = DSPDoubleSplitComplex(realp: &realp, imagp: &imagp)
-        
-        padded.withUnsafeBufferPointer { buffer in
-            var input = buffer.baseAddress!
-            vDSP_ctozD(UnsafePointer<DSPDoubleComplex>(OpaquePointer(input)), 2, &splitComplex, 1, vDSP_Length(paddedSize / 2))
-        }
-        
-        vDSP_fft_zipD(setup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-        
-        // Calculate magnitudes
-        var magnitudes = [Double](repeating: 0.0, count: paddedSize / 2)
-        vDSP_zvmagsD(&splitComplex, 1, &magnitudes, 1, vDSP_Length(paddedSize / 2))
-        
-        return Array(magnitudes.prefix(n)).map { sqrt($0) }
+        // Use the simple (safe) FFT for all inputs — avoids vDSP pointer
+        // lifetime issues that cause crashes on concurrent queues.
+        if data.count <= 1 { return data.map { abs($0) } }
+        return simpleFFT(data)
     }
     
     private func simpleFFT(_ data: [Double]) -> [Double] {
