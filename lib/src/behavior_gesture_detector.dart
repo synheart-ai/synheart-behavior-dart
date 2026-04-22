@@ -1,8 +1,7 @@
-// ignore_for_file: avoid_print
-
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'core/logger.dart';
 import 'models/behavior_event.dart';
 import 'synheart_behavior.dart' show SynheartBehavior;
 
@@ -714,12 +713,12 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
       // Check if we have at least one keystroke (either intervals or first keystroke)
       // If _interKeyLatencies is empty, we might still have typed 1 character
       if (_interKeyLatencies.isNotEmpty || _lastKeystrokeTime != null) {
-        print(
+        logDebug(
             '⌨️ [END SESSION] Ending typing session - intervals: ${_interKeyLatencies.length}, backspaces: $_backspaceCount');
         // Emit typing session event
         _emitTypingSessionEvent();
       } else {
-        print(
+        logDebug(
             '⌨️ [END SESSION] No keystrokes detected, skipping event emission');
       }
     }
@@ -742,11 +741,11 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     final lengthDiff = currentLength - _previousLength;
 
     // DEBUG: Log all text changes
-    print(
+    logDebug(
         '📝 [TEXT CHANGE] previousLength: $_previousLength, currentLength: $currentLength, lengthDiff: $lengthDiff');
-    print(
+    logDebug(
         '📝 [TEXT CHANGE] _interKeyLatencies.length: ${_interKeyLatencies.length}, _backspaceCount: $_backspaceCount');
-    print(
+    logDebug(
         '📝 [TEXT CHANGE] _sessionStartTime: $_sessionStartTime, _lastKeystrokeTime: $_lastKeystrokeTime');
 
     // Only detect when text is added (not deleted)
@@ -757,7 +756,7 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
           : null;
 
       // Debug logging for paste detection
-      print(
+      logDebug(
           '📋 BehaviorTextField: Text changed - lengthDiff: $lengthDiff, timeSinceLastChange: $timeSinceLastChange ms, threshold: $_pasteDetectionThreshold');
 
       // Paste detection: if 2+ characters added, consider it a paste
@@ -809,11 +808,11 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
         if (_lastKeystrokeTime != null) {
           final latency = now.difference(_lastKeystrokeTime!).inMilliseconds;
           _interKeyLatencies.add(latency);
-          print(
+          logDebug(
               '⌨️ [TYPING] Keystroke detected - latency: ${latency}ms, total intervals: ${_interKeyLatencies.length}');
         } else {
           // First keystroke: don't store interval, but log it
-          print('⌨️ [TYPING] First keystroke detected (no interval yet)');
+          logDebug('⌨️ [TYPING] First keystroke detected (no interval yet)');
         }
         // First keystroke: don't store anything (no previous keystroke to measure interval)
 
@@ -876,14 +875,14 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
       if (!cutDetected) {
         // No selection or invalid selection - treat as backspace/delete
         _backspaceCount += deletedChars;
-        print(
+        logDebug(
             '⌫ [BACKSPACE] Backspace detected - deleted: $deletedChars chars, total backspaces: $_backspaceCount');
-        print(
+        logDebug(
             '⌫ [BACKSPACE] _previousLength: $_previousLength, currentLength: $currentLength');
-        print(
+        logDebug(
             '⌫ [BACKSPACE] _interKeyLatencies.length: ${_interKeyLatencies.length}');
       } else {
-        print(
+        logDebug(
             '⌫ [BACKSPACE] Skipping backspace count - this was a cut operation (deleted: $deletedChars chars)');
       }
     }
@@ -936,18 +935,18 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
                 _lastSelection = null;
                 _lastSelectionTime = null;
               } else {
-                print(
+                logDebug(
                     '❌ [COPY] Skipping - timeSinceSelection ($timeSinceSelection ms) < 100ms threshold');
               }
             } else {
               // Selection existed but we don't have timing - still likely a copy
-              print(
+              logDebug(
                   '✅ [COPY] Detected COPY - selection cleared (no timing), eventId: $copyEventId');
               _emitCopyEvent();
               _lastCopyEventTime = now;
               _lastClipboardEventId =
                   copyEventId; // Track this event to prevent duplicates
-              print(
+              logDebug(
                   '✅ [COPY] Event emitted and tracked - _lastClipboardEventId set to: $_lastClipboardEventId');
               // Mark that we've processed this selection
               _hasProcessedSelectionForClipboard = true;
@@ -1052,12 +1051,12 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     // If we have N keystrokes, we have (N-1) intervals
     // So typingTapCount = _interKeyLatencies.length + 1 (to account for first keystroke)
     final typingTapCount = _interKeyLatencies.length + 1;
-    print('⌨️ [TYPING SESSION] Calculating typing metrics:');
-    print(
+    logDebug('⌨️ [TYPING SESSION] Calculating typing metrics:');
+    logDebug(
         '⌨️ [TYPING SESSION] _interKeyLatencies.length: ${_interKeyLatencies.length}');
-    print(
+    logDebug(
         '⌨️ [TYPING SESSION] typingTapCount (intervals + 1): $typingTapCount');
-    print('⌨️ [TYPING SESSION] _backspaceCount: $_backspaceCount');
+    logDebug('⌨️ [TYPING SESSION] _backspaceCount: $_backspaceCount');
 
     // typing_speed = N / T (taps per second)
     final typingSpeed =

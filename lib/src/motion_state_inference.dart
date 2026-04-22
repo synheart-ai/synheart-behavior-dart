@@ -1,9 +1,8 @@
-// ignore_for_file: avoid_print
-
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'dart:convert';
+import 'core/logger.dart';
 import 'models/behavior_session.dart';
 
 /// Service for running ONNX inference on motion data to predict activity states.
@@ -72,7 +71,7 @@ class MotionStateInference {
         // Feature order will be loaded on first inference
       }
     } catch (e) {
-      print('MotionStateInference: Error loading model: $e');
+      logError('MotionStateInference: Error loading model: $e', e);
       // Don't rethrow - allow SDK to continue without motion state inference
       // This is especially important for test environments where ONNX runtime may not be available
       _isLoaded = false;
@@ -91,17 +90,17 @@ class MotionStateInference {
       // Try package path first (for plugin assets), then fallback to regular path
       String featuresText;
       try {
-        print(
+        logInfo(
             'MotionStateInference: Trying to load features.txt from package path...');
         featuresText = await rootBundle.loadString(
           'packages/synheart_behavior/features.txt',
         );
-        print('MotionStateInference: Successfully loaded from package path');
+        logInfo('MotionStateInference: Successfully loaded from package path');
       } catch (e) {
-        print(
+        logInfo(
             'MotionStateInference: Package path failed ($e), trying regular path...');
         featuresText = await rootBundle.loadString('features.txt');
-        print('MotionStateInference: Successfully loaded from regular path');
+        logInfo('MotionStateInference: Successfully loaded from regular path');
       }
 
       // Parse features.txt.
@@ -142,8 +141,8 @@ class MotionStateInference {
       _cachedFeatureOrder = cleaned;
       return cleaned;
     } catch (e) {
-      print('MotionStateInference: ERROR loading features.txt: $e');
-      print(
+      logInfo('MotionStateInference: ERROR loading features.txt: $e');
+      logInfo(
         'MotionStateInference: Falling back to alphabetical sort (may cause incorrect predictions!)',
       );
       // Fallback: return empty list, will use alphabetical sort
@@ -309,7 +308,7 @@ class MotionStateInference {
 
     if (featureOrder.isEmpty || featureOrder.length != 561) {
       // Fallback to alphabetical sort if features.txt couldn't be loaded
-      print(
+      logWarning(
           'MotionStateInference: WARNING - Using alphabetical sort as fallback!');
       final sortedKeys = features.keys.toList()..sort();
       return sortedKeys.map((key) => features[key]!).toList();
@@ -370,9 +369,9 @@ class MotionStateInference {
     }
 
     if (missingCount > 0) {
-      print(
+      logWarning(
           'MotionStateInference: WARNING - $missingCount features missing from data');
-      print(
+      logInfo(
           'MotionStateInference: Missing features: ${missingFeatures.take(10).join(", ")}${missingCount > 10 ? " ..." : ""}');
 
       // Also check what features ARE available (sample)
@@ -381,19 +380,19 @@ class MotionStateInference {
           .take(5)
           .toList();
       if (availableFeatures.isNotEmpty) {
-        print(
+        logInfo(
             'MotionStateInference: Sample bandsEnergy features available: ${availableFeatures.join(", ")}');
       }
     } else {
-      print('MotionStateInference: All 561 features mapped successfully');
+      logInfo('MotionStateInference: All 561 features mapped successfully');
 
       // Verify first few features are in correct order (for debugging)
       if (featureOrder.length >= 5 && orderedFeatures.length >= 5) {
-        print('MotionStateInference: Verifying feature order (first 5):');
+        logInfo('MotionStateInference: Verifying feature order (first 5):');
         for (int i = 0; i < 5; i++) {
           final expectedName = featureOrder[i];
           final actualValue = orderedFeatures[i];
-          print(
+          logInfo(
               '  Index $i: $expectedName = ${actualValue.toStringAsFixed(6)}');
         }
       }
@@ -423,9 +422,9 @@ class MotionStateInference {
 
       // Check if feature map was empty (no sensor data collected)
       if (features.isEmpty) {
-        print(
+        logWarning(
             'MotionStateInference: WARNING - Feature map is empty! No sensor data was collected. This will result in all-zero features.');
-        print(
+        logInfo(
             'MotionStateInference: Check if enableMotionLite is true in BehaviorConfig and sensors are available.');
       }
 
@@ -439,15 +438,15 @@ class MotionStateInference {
         final nonZeroCount = featureList.length - zeroCount;
 
         if (nanCount > 0 || infCount > 0) {
-          print(
+          logInfo(
               'MotionStateInference: ERROR - Found $nanCount NaN values and $infCount Infinity values!');
         }
 
         // Check if most features are zero (indicates missing sensor data)
         if (zeroCount > featureList.length * 0.9) {
-          print(
+          logWarning(
               'MotionStateInference: WARNING - $zeroCount/${featureList.length} features are zero! This suggests sensor data may not be collected properly.');
-          print(
+          logInfo(
               'MotionStateInference: Only $nonZeroCount features have non-zero values.');
         }
 
@@ -457,14 +456,14 @@ class MotionStateInference {
           final maxVal = featureList.reduce((a, b) => a > b ? a : b);
           final meanVal =
               featureList.reduce((a, b) => a + b) / featureList.length;
-          print(
+          logInfo(
               'MotionStateInference: Feature statistics - Min: ${minVal.toStringAsFixed(6)}, Max: ${maxVal.toStringAsFixed(6)}, Mean: ${meanVal.toStringAsFixed(6)}, Zeros: $zeroCount/${featureList.length}');
 
           // Log feature value ranges for debugging (large values are expected, no normalization needed)
           if (maxVal.abs() > 1000.0 || meanVal.abs() > 1000.0) {
-            print(
+            logInfo(
                 'MotionStateInference: Feature value ranges - Max: ${maxVal.toStringAsFixed(2)}, Mean: ${meanVal.toStringAsFixed(2)}');
-            print(
+            logInfo(
                 'MotionStateInference: (Large values like bandsEnergy are expected - no normalization needed per ML engineer)');
           }
         }
@@ -489,26 +488,26 @@ class MotionStateInference {
             final stdX = featureList[bodyAccStdXIdx];
             final magMean = featureList[bodyAccMagMeanIdx];
 
-            print(
+            logInfo(
                 'MotionStateInference: Key features - tBodyAcc-mean()-X: ${featureList[bodyAccMeanXIdx].toStringAsFixed(6)}, tBodyAcc-std()-X: ${stdX.toStringAsFixed(6)}, tBodyAccMag-mean(): ${magMean.toStringAsFixed(6)}, tBodyAccMag-std(): ${bodyAccMagStdIdx >= 0 && bodyAccMagStdIdx < featureList.length ? featureList[bodyAccMagStdIdx].toStringAsFixed(6) : "N/A"}');
-            print(
+            logInfo(
                 'MotionStateInference: (For walking: std should be >0.1; for standing: std should be <0.1)');
 
             // Check if values suggest issue
             if (stdX < 0.05 && magMean < 0.1) {
-              print(
+              logWarning(
                   'MotionStateInference: WARNING - Very low std/magnitude. Possible causes:');
-              print(
+              logInfo(
                   '  1. Phone is stationary (not capturing movement during test)');
-              print('  2. Feature extraction issue (check native code)');
-              print('  3. Sensor data not being collected properly');
+              logInfo('  2. Feature extraction issue (check native code)');
+              logInfo('  3. Sensor data not being collected properly');
             }
 
             // Check raw feature map for comparison
             if (features.containsKey('tBodyAcc-std()-X')) {
               final rawStdX = features['tBodyAcc-std()-X']!;
               if ((rawStdX - stdX).abs() > 0.0001) {
-                print(
+                logWarning(
                     'MotionStateInference: WARNING - Feature ordering mismatch! Raw: ${rawStdX.toStringAsFixed(6)}, Ordered: ${stdX.toStringAsFixed(6)}');
               }
             }
@@ -530,12 +529,12 @@ class MotionStateInference {
       // Log first few feature values being sent to model (for debugging)
       if (_predictionCount == 0) {
         final featureOrder = await _loadFeatureOrder();
-        print(
+        logInfo(
             'MotionStateInference: First 5 feature values being sent to model:');
         for (int i = 0;
             i < 5 && i < featureOrder.length && i < inputData.length;
             i++) {
-          print(
+          logInfo(
               '  Position $i (features.txt line ${i + 1}): ${featureOrder[i]} = ${inputData[i].toStringAsFixed(6)}');
         }
       }
@@ -599,26 +598,26 @@ class MotionStateInference {
       // Log probabilities for first prediction to diagnose
       _probLogCount++;
       if (_probLogCount == 1) {
-        print('MotionStateInference: === MODEL OUTPUT DIAGNOSTICS ===');
-        print(
+        logInfo('MotionStateInference: === MODEL OUTPUT DIAGNOSTICS ===');
+        logInfo(
             'MotionStateInference: Label output type: ${labelOutput?.runtimeType}');
-        print('MotionStateInference: Label output value: $predictedLabel');
-        print(
+        logInfo('MotionStateInference: Label output value: $predictedLabel');
+        logInfo(
             'MotionStateInference: Probabilities output type: ${probsOutput?.runtimeType}');
-        print(
+        logInfo(
             'MotionStateInference: Probabilities length: ${probabilities.length}');
         if (probabilities.isNotEmpty) {
-          print('MotionStateInference: Model output probabilities/scores:');
+          logInfo('MotionStateInference: Model output probabilities/scores:');
           for (int i = 0;
               i < _classLabels.length && i < probabilities.length;
               i++) {
-            print(
+            logInfo(
                 '  ${_classLabels[i]}: ${probabilities[i].toStringAsFixed(6)}');
           }
           // Find the class with highest score
           final maxIndex = probabilities
               .indexOf(probabilities.reduce((a, b) => a > b ? a : b));
-          print(
+          logInfo(
               'MotionStateInference: Highest score class: ${_classLabels[maxIndex]} (index: $maxIndex)');
 
           // Calculate score differences to see how close other classes are
@@ -626,26 +625,26 @@ class MotionStateInference {
             ..sort((a, b) => b.compareTo(a));
           if (sortedScores.length >= 2) {
             final diff = sortedScores[0] - sortedScores[1];
-            print(
+            logInfo(
                 'MotionStateInference: Score difference between top 2 classes: ${diff.toStringAsFixed(2)}');
             if (diff < 100000) {
-              print(
+              logInfo(
                   'MotionStateInference: NOTE - Top 2 classes are close (diff < 100k), predictions may be uncertain');
             }
           }
         } else {
-          print(
+          logWarning(
               'MotionStateInference: WARNING - No probabilities extracted from model output');
           if (probsOutput != null) {
             final probsData = await probsOutput.asFlattenedList();
-            print(
+            logInfo(
                 'MotionStateInference: ProbsOutput value type: ${probsData.runtimeType}');
-            print('MotionStateInference: ProbsOutput value: $probsData');
+            logInfo('MotionStateInference: ProbsOutput value: $probsData');
           } else {
-            print('MotionStateInference: ProbsOutput is null');
+            logInfo('MotionStateInference: ProbsOutput is null');
           }
         }
-        print('MotionStateInference: === END MODEL OUTPUT DIAGNOSTICS ===');
+        logInfo('MotionStateInference: === END MODEL OUTPUT DIAGNOSTICS ===');
       }
 
       // Use the text label from model output as the primary prediction
@@ -675,13 +674,13 @@ class MotionStateInference {
             featureList[bodyAccStdXIdx] > 0.3; // High stdX indicates movement
 
         if (hasMovement && finalPredictedLabel.toUpperCase() == 'STANDING') {
-          print(
+          logInfo(
               'MotionStateInference: ⚠️ MOVEMENT DETECTED but STANDING predicted!');
-          print(
+          logInfo(
               'MotionStateInference: stdX = ${featureList[bodyAccStdXIdx].toStringAsFixed(4)} (indicates movement)');
-          print(
+          logInfo(
               'MotionStateInference: Model text output: $finalPredictedLabel');
-          print('MotionStateInference: Model scores for all classes:');
+          logInfo('MotionStateInference: Model scores for all classes:');
 
           // Find index of predicted label for comparison
           final predictedIndex = _classLabels.indexOf(finalPredictedLabel);
@@ -690,7 +689,7 @@ class MotionStateInference {
               i < _classLabels.length && i < probabilities.length;
               i++) {
             final marker = i == predictedIndex ? ' ← PREDICTED' : '';
-            print(
+            logInfo(
                 '  ${_classLabels[i]}: ${probabilities[i].toStringAsFixed(2)}$marker');
           }
           final movIndex = _classLabels.indexOf('MOVING');
@@ -700,10 +699,10 @@ class MotionStateInference {
             final movScore = probabilities[movIndex];
             final standScore = probabilities[predictedIndex];
             final diff = standScore - movScore;
-            print(
+            logInfo(
                 'MotionStateInference: STANDING score (${standScore.toStringAsFixed(2)}) - MOVING score (${movScore.toStringAsFixed(2)}) = ${diff.toStringAsFixed(2)}');
             if (movScore < 0) {
-              print(
+              logInfo(
                   'MotionStateInference: ⚠️ MOVING has NEGATIVE score even with movement!');
             }
           }
@@ -730,7 +729,7 @@ class MotionStateInference {
       // Return the score as-is directly from model output (no calculations)
       return MapEntry(outputLabel, confidence);
     } catch (e) {
-      print('MotionStateInference: Error during prediction: $e');
+      logError('MotionStateInference: Error during prediction: $e', e);
       rethrow;
     }
   }
@@ -744,11 +743,11 @@ class MotionStateInference {
   /// - ml_model: Model identifier
   /// - confidence: Average confidence (placeholder, can be enhanced)
   Future<MotionState> inferMotionState(List<MotionDataPoint> motionData) async {
-    print(
+    logInfo(
         'MotionStateInference: Starting inference on ${motionData.length} data points');
 
     if (motionData.isEmpty) {
-      print('MotionStateInference: No motion data provided');
+      logInfo('MotionStateInference: No motion data provided');
       return MotionState(
         state: [],
         majorState: 'unknown',
@@ -759,7 +758,7 @@ class MotionStateInference {
     }
 
     if (!_isLoaded || _session == null) {
-      print('MotionStateInference: ERROR - Model not loaded!');
+      logInfo('MotionStateInference: ERROR - Model not loaded!');
       throw Exception('Model not loaded. Call loadModel() first.');
     }
 
@@ -779,15 +778,15 @@ class MotionStateInference {
         confidences.add(confidence);
 
         // Log all predictions to see what's happening
-        print(
+        logInfo(
             'MotionStateInference: Data point ${i + 1}/${motionData.length} - Prediction: $predictedState (confidence: ${confidence.toStringAsFixed(3)})');
 
         // Log detailed diagnostics for first few data points to compare activities
         if (i < 3) {
-          print(
+          logInfo(
               'MotionStateInference: Data point ${i + 1} - Feature count: ${dataPoint.features.length}');
           if (dataPoint.features.isEmpty) {
-            print(
+            logInfo(
                 'MotionStateInference: ERROR - Data point ${i + 1} has no features! Sensor data may not be collected.');
           } else {
             // Log key movement indicators
@@ -798,15 +797,15 @@ class MotionStateInference {
             final magStd = dataPoint.features['tBodyAccMag-std()'];
 
             if (stdX != null && magMean != null) {
-              print(
+              logInfo(
                   'MotionStateInference: Data point ${i + 1} key features - stdX: ${stdX.toStringAsFixed(4)}, stdY: ${stdY?.toStringAsFixed(4) ?? "N/A"}, stdZ: ${stdZ?.toStringAsFixed(4) ?? "N/A"}, magMean: ${magMean.toStringAsFixed(4)}, magStd: ${magStd?.toStringAsFixed(4) ?? "N/A"}');
-              print(
+              logInfo(
                   'MotionStateInference: (Expected: stdX > 0.1 for walking/moving, < 0.1 for standing/sitting)');
             }
           }
         }
       } catch (e) {
-        print(
+        logInfo(
             'MotionStateInference: ERROR predicting for data point ${i + 1}: $e');
         states.add('unknown');
         confidences.add(0.0);
