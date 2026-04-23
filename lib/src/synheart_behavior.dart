@@ -43,8 +43,16 @@ class SynheartBehavior {
   // String? _userId;
   // String? _deviceId;
 
-  /// Internal method to handle events from Flutter gesture detector
+  /// Internal method to handle events from Flutter gesture detector.
+  ///
+  /// Silently drops events after `dispose()` has closed the controller.
+  /// The gesture detector widget may still be mounted and firing taps/
+  /// scrolls after the SDK has been shut down (session stop + dispose
+  /// race); adding to a closed controller would throw
+  /// "Bad state: Cannot add new events after calling close".
   void _handleFlutterEvent(BehaviorEvent event) {
+    if (_eventController.isClosed) return;
+
     // Replace "current" session ID if needed
     var eventWithSessionId = event;
     if (event.sessionId == "current" && _currentSessionId != null) {
@@ -201,6 +209,13 @@ class SynheartBehavior {
 
           // Notify immediate callback first so core never misses an event
           _immediateEventCallback?.call(event);
+          if (_eventController.isClosed) {
+            // Dispose raced ahead of a native event. Native side will stop
+            // emitting once `dispose()` completes; drop the straggler.
+            debugPrint(
+                'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent dropped — controller closed');
+            return;
+          }
           _eventController.add(event);
           debugPrint(
               'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
@@ -524,12 +539,13 @@ class SynheartBehavior {
   /// Send an event from Dart to the native SDK.
   /// This is used by BehaviorGestureDetector to send Flutter gesture events
   /// to the native SDK for storage in session data.
+  ///
+  /// Silently no-ops when the SDK is not initialized. The gesture detector
+  /// fires-and-forgets this call, so an exception after dispose would
+  /// escape as an unhandled async error; returning quietly is the safe
+  /// behavior for the "stragglers arriving after stop" case.
   Future<void> sendEvent(BehaviorEvent event) async {
-    if (!_initialized) {
-      throw Exception(
-        'SDK not initialized. Call SynheartBehavior.initialize() first.',
-      );
-    }
+    if (!_initialized) return;
 
     try {
       // Replace "current" session ID with actual session ID if available

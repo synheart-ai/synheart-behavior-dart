@@ -6,7 +6,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import android.view.ActionMode
+import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
+import android.view.MotionEvent
+import android.view.SearchEvent
 import android.view.View
+import android.view.Window
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -23,6 +32,10 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private var rootView: View? = null
     private var context: Context? = null
     private var behaviorSDK: BehaviorSDK? = null
+    // Original Window.Callback owned by the Activity; we wrap it with
+    // TouchForwardingCallback so we can observe every touch at the window
+    // level (before Flutter's surface consumes it). Restored on detach.
+    private var originalWindowCallback: Window.Callback? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(binding.binaryMessenger, "ai.synheart.behavior")
@@ -127,6 +140,26 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         behaviorSDK = BehaviorSDK(context!!, behaviorConfig)
         behaviorSDK?.initialize()
         behaviorSDK?.setEventHandler { event -> emitEvent(event.toMap()) }
+
+        // Activity may have already attached BEFORE Dart called initialize()
+        // — FlutterPlugin lifecycle on Android fires `onAttachedToActivity`
+        // before the Dart isolate sends `initialize`. In that window the SDK
+        // didn't exist yet, so the earlier `behaviorSDK?.attachToView(...)`
+        // call in onAttachedToActivity no-op'd. Re-attach here so the
+        // `GestureCollector` / `InputSignalCollector` OnTouchListeners land
+        // on the root view and taps actually reach `emitEvent`. Without
+        // this, the Android pipeline is silent while iOS works (iOS captures
+        // via UIWindow-level hooks that don't have this ordering race).
+        rootView?.let { view ->
+            android.util.Log.d(
+                "SynheartBehaviorPlugin",
+                "initialize(): re-attaching SDK to rootView=${view.javaClass.simpleName}"
+            )
+            behaviorSDK?.attachToView(view)
+        } ?: android.util.Log.w(
+            "SynheartBehaviorPlugin",
+            "initialize(): no rootView yet — SDK will attach in onAttachedToActivity"
+        )
     }
 
     private fun startSession(sessionId: String) {
@@ -337,13 +370,75 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         activity = binding.activity
         rootView = activity?.window?.decorView?.rootView
 
-        // Attach SDK to root view for signal collection
-        rootView?.let { view -> behaviorSDK?.attachToView(view) }
+        // Install the Window.Callback wrap once we have an activity. Touches
+        // captured here flow THROUGH the wrap to Flutter unchanged — we only
+        // read them. This is the reliable capture path in a Flutter host;
+        // the view-attached OnTouchListener route only fires when no child
+        // consumed, which Flutter's embedded surface always does.
+        installWindowCallbackWrap()
+
+        // Attach SDK to root view for signal collection.
+        // Note: `behaviorSDK` may still be null here — FlutterPlugin fires
+        // this before Dart has a chance to call `initialize`. The matching
+        // re-attach in `initialize()` covers that case.
+        if (behaviorSDK != null) {
+            rootView?.let { view ->
+                android.util.Log.d(
+                    "SynheartBehaviorPlugin",
+                    "onAttachedToActivity: attaching SDK to ${view.javaClass.simpleName}"
+                )
+                behaviorSDK?.attachToView(view)
+            }
+        } else {
+            android.util.Log.d(
+                "SynheartBehaviorPlugin",
+                "onAttachedToActivity: SDK not initialized yet — deferring attach to initialize()"
+            )
+        }
 
         // Register for configuration changes to track orientation
         // We'll check orientation changes periodically since ActivityPluginBinding
         // doesn't have a direct configuration change listener
         // The BehaviorSDK will check orientation on its own via a different mechanism
+    }
+
+    /**
+     * Wrap `activity.window.callback` so every touch dispatched to the
+     * window flows through our forwarding callback — before Flutter's
+     * embedded surface consumes it. Idempotent: if the current callback
+     * is already our wrap, we no-op.
+     */
+    private fun installWindowCallbackWrap() {
+        val a = activity ?: return
+        val current = a.window.callback
+        if (current is TouchForwardingCallback) {
+            android.util.Log.d(
+                "SynheartBehaviorPlugin",
+                "installWindowCallbackWrap: already installed"
+            )
+            return
+        }
+        originalWindowCallback = current
+        a.window.callback = TouchForwardingCallback(current) { event ->
+            behaviorSDK?.feedTouchEvent(event)
+        }
+        android.util.Log.d(
+            "SynheartBehaviorPlugin",
+            "installWindowCallbackWrap: installed over ${current?.javaClass?.simpleName}"
+        )
+    }
+
+    private fun restoreWindowCallback() {
+        val a = activity ?: return
+        val current = a.window.callback
+        if (current is TouchForwardingCallback && originalWindowCallback != null) {
+            a.window.callback = originalWindowCallback
+            android.util.Log.d(
+                "SynheartBehaviorPlugin",
+                "restoreWindowCallback: restored ${originalWindowCallback?.javaClass?.simpleName}"
+            )
+        }
+        originalWindowCallback = null
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -354,10 +449,122 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         activity = binding.activity
         rootView = activity?.window?.decorView?.rootView
+        installWindowCallbackWrap()
     }
 
     override fun onDetachedFromActivity() {
+        restoreWindowCallback()
         activity = null
         rootView = null
+    }
+
+    /**
+     * Window.Callback wrapper that forwards every touch event to
+     * [onTouchReceived] (a non-consuming observer) and then delegates the
+     * full Window.Callback surface to the original callback Android installed.
+     *
+     * Delegating the entire interface — not just `dispatchTouchEvent` — is
+     * important: Flutter's embedding and the Android platform both depend
+     * on dozens of callbacks firing correctly (menu, action mode, window
+     * focus, etc.). Forwarding every method keeps the host indistinguishable
+     * from the un-wrapped state, so installing this wrap has no functional
+     * side effects beyond the extra read.
+     */
+    private class TouchForwardingCallback(
+        private val delegate: Window.Callback?,
+        private val onTouchReceived: (MotionEvent) -> Unit,
+    ) : Window.Callback {
+
+        override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+            delegate?.dispatchKeyEvent(event) ?: false
+
+        override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean =
+            delegate?.dispatchKeyShortcutEvent(event) ?: false
+
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            try {
+                onTouchReceived(event)
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "SynheartBehaviorPlugin",
+                    "TouchForwardingCallback observer threw: ${e.message}",
+                    e
+                )
+            }
+            return delegate?.dispatchTouchEvent(event) ?: false
+        }
+
+        override fun dispatchTrackballEvent(event: MotionEvent): Boolean =
+            delegate?.dispatchTrackballEvent(event) ?: false
+
+        override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+            delegate?.dispatchGenericMotionEvent(event) ?: false
+
+        override fun dispatchPopulateAccessibilityEvent(
+            event: AccessibilityEvent
+        ): Boolean =
+            delegate?.dispatchPopulateAccessibilityEvent(event) ?: false
+
+        override fun onCreatePanelView(featureId: Int): View? =
+            delegate?.onCreatePanelView(featureId)
+
+        override fun onCreatePanelMenu(featureId: Int, menu: Menu): Boolean =
+            delegate?.onCreatePanelMenu(featureId, menu) ?: false
+
+        override fun onPreparePanel(featureId: Int, view: View?, menu: Menu): Boolean =
+            delegate?.onPreparePanel(featureId, view, menu) ?: false
+
+        override fun onMenuOpened(featureId: Int, menu: Menu): Boolean =
+            delegate?.onMenuOpened(featureId, menu) ?: false
+
+        override fun onMenuItemSelected(featureId: Int, item: MenuItem): Boolean =
+            delegate?.onMenuItemSelected(featureId, item) ?: false
+
+        override fun onWindowAttributesChanged(attrs: WindowManager.LayoutParams) {
+            delegate?.onWindowAttributesChanged(attrs)
+        }
+
+        override fun onContentChanged() {
+            delegate?.onContentChanged()
+        }
+
+        override fun onWindowFocusChanged(hasFocus: Boolean) {
+            delegate?.onWindowFocusChanged(hasFocus)
+        }
+
+        override fun onAttachedToWindow() {
+            delegate?.onAttachedToWindow()
+        }
+
+        override fun onDetachedFromWindow() {
+            delegate?.onDetachedFromWindow()
+        }
+
+        override fun onPanelClosed(featureId: Int, menu: Menu) {
+            delegate?.onPanelClosed(featureId, menu)
+        }
+
+        override fun onSearchRequested(): Boolean =
+            delegate?.onSearchRequested() ?: false
+
+        override fun onSearchRequested(searchEvent: SearchEvent): Boolean =
+            delegate?.onSearchRequested(searchEvent) ?: false
+
+        override fun onWindowStartingActionMode(callback: ActionMode.Callback): ActionMode? =
+            delegate?.onWindowStartingActionMode(callback)
+
+        override fun onWindowStartingActionMode(
+            callback: ActionMode.Callback,
+            type: Int
+        ): ActionMode? =
+            delegate?.onWindowStartingActionMode(callback, type)
+
+        override fun onActionModeStarted(mode: ActionMode) {
+            delegate?.onActionModeStarted(mode)
+        }
+
+        override fun onActionModeFinished(mode: ActionMode) {
+            delegate?.onActionModeFinished(mode)
+        }
     }
 }

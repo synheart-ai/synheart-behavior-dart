@@ -820,6 +820,17 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         }
     }
 
+    /**
+     * Forward a Window-level touch into the gesture collector. Used by
+     * `SynheartBehaviorPlugin` to capture touches that would otherwise be
+     * consumed by Flutter's embedded surface before reaching a
+     * view-attached OnTouchListener. Forwarding is a read-only pass — the
+     * caller does NOT consume the event.
+     */
+    fun feedTouchEvent(event: android.view.MotionEvent) {
+        gestureCollector.feedTouchEvent(event)
+    }
+
     fun dispose() {
         handler.removeCallbacks(idleCheckRunnable)
         inputSignalCollector.dispose()

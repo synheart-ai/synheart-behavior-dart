@@ -100,6 +100,19 @@ class GestureCollector(private var config: BehaviorConfig) {
         config = newConfig
     }
 
+    /**
+     * Public entry point for touches captured at the Window.Callback level
+     * (see `SynheartBehaviorPlugin.TouchForwardingCallback`). Unlike the
+     * `attachToView` path, this one reliably fires for every touch in a
+     * Flutter host — the OnTouchListener approach depends on a ViewGroup
+     * child not consuming the event, which Flutter's embedded surface
+     * always does.
+     */
+    fun feedTouchEvent(event: MotionEvent) {
+        if (!config.enableInputSignals) return
+        handleTouchEvent(event)
+    }
+
     private fun handleTouchEvent(event: MotionEvent) {
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
@@ -212,7 +225,16 @@ class GestureCollector(private var config: BehaviorConfig) {
                     val longPress = duration >= longPressThresholdMs
                     // Ensure minimum duration for very quick taps (at least 10ms)
                     val tapDuration = if (duration < 10) 10 else duration.toInt()
-                    emitTapEvent(tapDurationMs = tapDuration, longPress = longPress)
+                    // Prefer the ACTION_DOWN coordinates (swipeStartX/Y are
+                    // set on ACTION_DOWN) so `behavior_events.metrics_json`
+                    // carries the real touch position, matching the iOS
+                    // behavior and unlocking spatial-reaction-time analysis.
+                    emitTapEvent(
+                            tapDurationMs = tapDuration,
+                            longPress = longPress,
+                            x = swipeStartX.toDouble(),
+                            y = swipeStartY.toDouble()
+                    )
                 }
 
                 // Clean up velocity tracker
@@ -372,7 +394,12 @@ class GestureCollector(private var config: BehaviorConfig) {
         }
     }
 
-    private fun emitTapEvent(tapDurationMs: Int, longPress: Boolean) {
+    private fun emitTapEvent(
+            tapDurationMs: Int,
+            longPress: Boolean,
+            x: Double = 0.0,
+            y: Double = 0.0
+    ) {
         tapTimestamps.add(System.currentTimeMillis())
         while (tapTimestamps.size > 50) {
             tapTimestamps.removeAt(0)
@@ -387,7 +414,9 @@ class GestureCollector(private var config: BehaviorConfig) {
                             metrics =
                                     mapOf(
                                             "tap_duration_ms" to tapDurationMs,
-                                            "long_press" to longPress
+                                            "long_press" to longPress,
+                                            "x" to x,
+                                            "y" to y
                                     )
                     )
             )

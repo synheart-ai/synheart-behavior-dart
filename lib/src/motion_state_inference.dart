@@ -552,46 +552,71 @@ class MotionStateInference {
       final runOptions = OrtRunOptions();
       final outputs = await _session!.run(inputs, options: runOptions);
 
-      // Extract outputs from the map
-      // Output 0: label (String or List<String>)
-      // Output 1: probabilities/scores (Float32[1, 4])
-      final outputKeys = outputs.keys.toList();
-      final labelOutput = outputs[outputKeys[0]];
-      final probsOutput = outputs[outputKeys[1]];
+      // Extract outputs from the map.
+      //
+      // The sklearn-to-ONNX SVC export produces two outputs: a label tensor
+      // (String) and a probabilities tensor (Float32[1, 4]). Their ORDER in
+      // the outputs map is NOT guaranteed — depending on the ort build /
+      // model export, positional indexing (`outputKeys[0]` vs `outputKeys[1]`)
+      // sometimes swaps them, after which `probsData.map((e) => e.toDouble())`
+      // trips on a String like "STANDING" and throws
+      // `NoSuchMethodError: Class 'String' has no instance method 'toDouble'`.
+      //
+      // Detect each output by the runtime type of its first flattened element
+      // so label vs. probabilities are always assigned correctly.
+      dynamic labelOutput;
+      dynamic probsOutput;
+      List<dynamic>? labelData;
+      List<dynamic>? probsData;
+
+      for (final entry in outputs.entries) {
+        final out = entry.value;
+        final flat = await out.asFlattenedList();
+        if (flat.isEmpty) continue;
+        // A label tensor's first element is a String (or a List<String> for
+        // batched outputs); everything numeric is the probabilities tensor.
+        final firstElem = flat[0] is List ? (flat[0] as List).firstOrNull : flat[0];
+        if (firstElem is String) {
+          labelOutput = out;
+          labelData = flat;
+        } else if (firstElem is num) {
+          probsOutput = out;
+          probsData = flat;
+        }
+      }
 
       // Release input tensor
       await inputTensor.dispose();
 
       // Get predicted label
       String predictedLabel = '';
-      if (labelOutput != null) {
-        final labelData = await labelOutput.asFlattenedList();
-        // Handle label data - could be String or List
-        if (labelData.isNotEmpty) {
-          final firstElement = labelData[0];
-          if (firstElement is String) {
-            predictedLabel = firstElement;
-          } else {
-            // If it's a numeric index, map it to the label
-            final index = (firstElement as num).toInt();
-            if (index >= 0 && index < _classLabels.length) {
-              predictedLabel = _classLabels[index];
-            }
+      if (labelOutput != null && labelData != null && labelData.isNotEmpty) {
+        final firstElement = labelData[0];
+        if (firstElement is String) {
+          predictedLabel = firstElement;
+        } else if (firstElement is List && firstElement.isNotEmpty &&
+            firstElement.first is String) {
+          predictedLabel = firstElement.first as String;
+        } else if (firstElement is num) {
+          // Numeric index fallback — map to label list.
+          final index = firstElement.toInt();
+          if (index >= 0 && index < _classLabels.length) {
+            predictedLabel = _classLabels[index];
           }
         }
       }
 
-      // Get probabilities/scores from model output
-      // The model outputs probabilities (if probability=True) or decision scores
+      // Get probabilities/scores from model output.
+      // The model outputs probabilities (if probability=True) or decision scores.
       List<double> probabilities = [];
-      if (probsOutput != null) {
-        final probsData = await probsOutput.asFlattenedList();
+      if (probsOutput != null && probsData != null) {
         // Handle nested list structure [1, 4]
         if (probsData.isNotEmpty && probsData[0] is List) {
           probabilities = List<double>.from(
-              (probsData[0] as List).map((e) => e.toDouble()));
+              (probsData[0] as List).map((e) => (e as num).toDouble()));
         } else {
-          probabilities = List<double>.from(probsData.map((e) => e.toDouble()));
+          probabilities = List<double>.from(
+              probsData.map((e) => (e as num).toDouble()));
         }
       }
 

@@ -119,9 +119,40 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
             self?.emitEvent(event: event.toDictionary())
         }
 
-        // Native view attachment disabled — gesture/input events are captured
-        // on the Dart side via BehaviorGestureDetector. Re-enable when native
-        // collectors are optimized for Flutter's rendering pipeline.
+        // Native view attachment — captures taps / scrolls / swipes via
+        // UIKit gesture recognizers installed on the key window's root
+        // view. With `cancelsTouchesInView = false` (set inside
+        // GestureCollector.addGestureRecognizers), the recognizers only
+        // OBSERVE touches; they don't steal them from Flutter's own
+        // gesture arena. Re-enabled after seeing empty `behavior_events`
+        // in research exports — the Dart-side BehaviorGestureDetector
+        // alone failed to see taps on buttons that consume their own
+        // gesture arena, leaving the Dart event stream empty even though
+        // `activity_summary` in the runtime lab payload picked up events
+        // via other paths.
+        //
+        // Dispatched async on main so we run after the Flutter view
+        // hierarchy has been attached to its UIWindow.
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let rootView: UIView? = {
+                if #available(iOS 13.0, *) {
+                    return UIApplication.shared.connectedScenes
+                        .compactMap { $0 as? UIWindowScene }
+                        .flatMap { $0.windows }
+                        .first(where: { $0.isKeyWindow })?
+                        .rootViewController?.view
+                } else {
+                    return UIApplication.shared.keyWindow?.rootViewController?.view
+                }
+            }()
+            if let view = rootView {
+                self.behaviorSDK?.attachToView(view)
+                print("SynheartBehaviorPlugin.initialize: native view attachment wired to rootViewController.view")
+            } else {
+                print("SynheartBehaviorPlugin.initialize: WARNING — no root view found for native gesture attachment; falling back to Dart-side detector only")
+            }
+        }
 
         isInitialized = true
     }

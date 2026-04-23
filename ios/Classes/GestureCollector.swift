@@ -28,6 +28,11 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
     private var tapTimestamps: [Double] = []
     private var tapStartTime: Double = 0
     private var panStartTimeForTap: Double = 0 // Track pan start time for tap duration
+    // Debounce so a single user tap doesn't emit twice via both
+    // UITapGestureRecognizer AND the pan-turned-tap fallback.
+    // Value is the epoch-ms of the last emitTapEvent call.
+    private var lastTapEmitMs: Double = 0
+    private static let tapDedupWindowMs: Double = 50
     private let longPressThresholdMs: Double = 500.0
 
     // Swipe tracking
@@ -112,7 +117,7 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let now = Date().timeIntervalSince1970 * 1000
         tapStartTime = now
-        
+
         // Use actual duration from pan gesture if available, otherwise estimate
         // UITapGestureRecognizer doesn't provide duration, so we use pan gesture timing
         let actualDuration: Int
@@ -123,8 +128,9 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
             // Fallback: estimate based on typical tap duration (50-100ms)
             actualDuration = 75
         }
-        
-        emitTapEvent(tapDurationMs: actualDuration, longPress: false)
+
+        let point = gesture.view.map { gesture.location(in: $0) } ?? .zero
+        emitTapEvent(tapDurationMs: actualDuration, longPress: false, x: Double(point.x), y: Double(point.y))
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -132,7 +138,8 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
             tapStartTime = Date().timeIntervalSince1970 * 1000
         } else if gesture.state == .ended {
             let duration = Date().timeIntervalSince1970 * 1000 - tapStartTime
-            emitTapEvent(tapDurationMs: Int(duration), longPress: true)
+            let point = gesture.view.map { gesture.location(in: $0) } ?? .zero
+            emitTapEvent(tapDurationMs: Int(duration), longPress: true, x: Double(point.x), y: Double(point.y))
         }
     }
 
@@ -224,7 +231,12 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
                 // It's a tap - use actual measured duration from pan gesture
                 let tapDuration = Int(duration)
                 let longPress = tapDuration >= Int(longPressThresholdMs)
-                emitTapEvent(tapDurationMs: tapDuration, longPress: longPress)
+                emitTapEvent(
+                    tapDurationMs: tapDuration,
+                    longPress: longPress,
+                    x: Double(swipeLastPoint.x),
+                    y: Double(swipeLastPoint.y)
+                )
             }
             // Reset pan start time
             panStartTimeForTap = 0
@@ -378,10 +390,36 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
         ))
     }
 
-    private func emitTapEvent(tapDurationMs: Int, longPress: Bool) {
-        tapTimestamps.append(Date().timeIntervalSince1970 * 1000)
+    private func emitTapEvent(tapDurationMs: Int, longPress: Bool, x: Double = 0.0, y: Double = 0.0) {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+
+        // Dedup: a single user tap is often observed by BOTH the tap
+        // recognizer (which fires with real coordinates) AND the pan
+        // recognizer's short-duration fallback (which fires milliseconds
+        // later, sometimes with degenerate coords). Drop the second fire
+        // so `behavior_events` / `BehaviorSessionResults.tapRate` count
+        // each physical tap exactly once.
+        if nowMs - lastTapEmitMs < GestureCollector.tapDedupWindowMs {
+            return
+        }
+        lastTapEmitMs = nowMs
+
+        tapTimestamps.append(nowMs)
         if tapTimestamps.count > 50 {
             tapTimestamps.removeFirst()
+        }
+
+        // Fallback coordinates: if both x and y are zero, the caller is
+        // the pan-turned-tap branch where `swipeLastPoint` was never
+        // updated from its CGPoint.zero default (tap with no
+        // pan-changed event in between). Use `swipeStartPoint` instead,
+        // which IS set on pan .began.
+        var emitX = x
+        var emitY = y
+        if emitX == 0.0 && emitY == 0.0 &&
+           (swipeStartPoint.x != 0 || swipeStartPoint.y != 0) {
+            emitX = Double(swipeStartPoint.x)
+            emitY = Double(swipeStartPoint.y)
         }
 
         eventHandler?(BehaviorEvent(
@@ -389,7 +427,9 @@ class GestureCollector: NSObject, UIScrollViewDelegate, UIGestureRecognizerDeleg
             eventType: "tap",
             metrics: [
                 "tap_duration_ms": tapDurationMs,
-                "long_press": longPress
+                "long_press": longPress,
+                "x": emitX,
+                "y": emitY
             ]
         ))
     }
