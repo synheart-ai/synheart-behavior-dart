@@ -9,6 +9,7 @@ import 'models/behavior_event.dart';
 import 'models/behavior_session.dart'
     show BehaviorSession, BehaviorSessionSummary, MotionDataPoint;
 import 'models/behavior_stats.dart';
+import 'models/motion_sample.dart';
 // Window features - commented out (not needed for real-time event tracking)
 // import 'models/behavior_window_features.dart';
 // import 'behavior_window_aggregator.dart';
@@ -27,6 +28,8 @@ class SynheartBehavior {
   final BehaviorConfig _config;
   final StreamController<BehaviorEvent> _eventController =
       StreamController<BehaviorEvent>.broadcast();
+  final StreamController<List<MotionSample>> _motionSampleController =
+      StreamController<List<MotionSample>>.broadcast();
   // Window features - commented out (not needed for real-time event tracking)
   // final StreamController<BehaviorWindowFeatures> _shortWindowController =
   //     StreamController<BehaviorWindowFeatures>.broadcast();
@@ -132,6 +135,22 @@ class SynheartBehavior {
   /// Subscribe to this stream to receive real-time behavioral signals.
   Stream<BehaviorEvent> get onEvent => _eventController.stream;
 
+  /// Stream of raw accelerometer sample batches.
+  ///
+  /// Each event is a list of ~50 samples representing a 1-second window at
+  /// 50 Hz (batched on the native side to keep MethodChannel overhead low).
+  /// Consumers — typically `synheart-core-flutter`'s `BehaviorModule` —
+  /// forward these via the runtime's `push_accel` FFI so the engine's
+  /// `session-runtime` can derive features and `MotionStateHead` (per
+  /// RFC-MOTION-STATE-0001) can classify posture/motion.
+  ///
+  /// Phase 3 wiring: the behavior SDK is the *collector*, not the inferrer.
+  /// Native emission is implemented behind the
+  /// `BehaviorConfig.emitRawMotionSamples` flag once the platform side
+  /// (Swift `MotionSignalCollector`, Kotlin equivalent) lands.
+  Stream<List<MotionSample>> get onMotionSample =>
+      _motionSampleController.stream;
+
   // Window features - commented out (not needed for real-time event tracking)
   // /// Stream of 30-second window features.
   // ///
@@ -227,6 +246,27 @@ class SynheartBehavior {
               'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parse error: $e');
           debugPrint('[BehaviorSDK] onEvent parse error: $e');
           debugPrint('[BehaviorSDK] stack: $st');
+        }
+        break;
+      case 'onMotionSampleBatch':
+        // Native side emits a periodic batch of raw 50 Hz accel samples for
+        // the runtime to consume via push_accel. See [onMotionSample] for the
+        // contract. Payload shape:
+        //   { "samples": [ {ts_ms, ax, ay, az}, ... ] }
+        try {
+          final args = call.arguments as Map<dynamic, dynamic>;
+          final rawList = args['samples'];
+          if (rawList is! List) break;
+          final samples = <MotionSample>[];
+          for (final item in rawList) {
+            if (item is Map) {
+              samples.add(MotionSample.fromMap(item));
+            }
+          }
+          if (samples.isEmpty || _motionSampleController.isClosed) break;
+          _motionSampleController.add(samples);
+        } catch (e) {
+          debugPrint('[BehaviorSDK] onMotionSampleBatch parse error: $e');
         }
         break;
       default:
@@ -519,6 +559,7 @@ class SynheartBehavior {
 
       // Close event streams
       await _eventController.close();
+      await _motionSampleController.close();
       // Window features - commented out (not needed for real-time event tracking)
       // await _shortWindowController.close();
       // await _longWindowController.close();

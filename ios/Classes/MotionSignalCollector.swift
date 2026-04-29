@@ -25,6 +25,14 @@ class MotionSignalCollector {
     // Time window configuration (5 seconds = 5000ms)
     private let timeWindowMs: Double = 5000.0
     private var lastWindowEndTime: Double = 0
+
+    // Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3).
+    // Forwards a 1-second slice of the accel buffer to the runtime so
+    // `session-runtime` can derive features and `MotionStateHead` can run.
+    private var rawSampleBatchHandler: (([[String: Any]]) -> Void)?
+    private var rawBatchTimer: Timer?
+    private var lastRawBatchEndMs: Double = 0
+    private let rawBatchIntervalMs: Double = 1000.0
     
     // ISO 8601 formatter for timestamps
     private let timestampFormatter: ISO8601DateFormatter = {
@@ -47,35 +55,50 @@ class MotionSignalCollector {
     
     func updateConfig(_ newConfig: BehaviorConfig) {
         config = newConfig
-        if !config.enableMotionLite && isCollecting {
+        let shouldCollect = config.enableMotionLite || config.emitRawMotionSamples
+        if !shouldCollect && isCollecting {
             stopCollecting()
-        } else if config.enableMotionLite && !isCollecting && sessionStartTime > 0 {
+        } else if shouldCollect && !isCollecting && sessionStartTime > 0 {
             startCollecting()
         }
+        updateRawBatchTimer()
+    }
+
+    /// Register a handler for periodic 1-second batches of raw 50 Hz accel
+    /// samples. Each batch entry is
+    /// `["ts_ms": Int64, "ax": Double, "ay": Double, "az": Double]`.
+    /// Only fires when `config.emitRawMotionSamples` is `true`.
+    func setRawSampleBatchHandler(_ handler: @escaping ([[String: Any]]) -> Void) {
+        rawSampleBatchHandler = handler
+        updateRawBatchTimer()
     }
     
     func startSession(sessionStartTime: Double) {
         self.sessionStartTime = sessionStartTime
         self.lastWindowEndTime = sessionStartTime
-        
+        self.lastRawBatchEndMs = sessionStartTime
+
         // Clear previous data
         sampleQueue.async(flags: .barrier) {
             self.accelerometerSamples.removeAll()
             self.gyroscopeSamples.removeAll()
             self.motionDataPoints.removeAll()
         }
-        
-        if config.enableMotionLite {
+
+        if config.enableMotionLite || config.emitRawMotionSamples {
             startCollecting()
         }
+        updateRawBatchTimer()
     }
     
     func stopSession() -> [MotionDataPoint] {
         stopCollecting()
-        
+
         // Flush any remaining samples in the current window
         flushCurrentWindow()
-        
+        flushRawBatch()
+        stopRawBatchTimer()
+
         // Return collected motion data
         return sampleQueue.sync {
             return motionDataPoints
@@ -92,7 +115,8 @@ class MotionSignalCollector {
     }
     
     private func startCollecting() {
-        if isCollecting || !config.enableMotionLite { return }
+        if isCollecting { return }
+        guard config.enableMotionLite || config.emitRawMotionSamples else { return }
         
         motionManager = CMMotionManager()
         guard let motionManager = motionManager else {
@@ -218,11 +242,70 @@ class MotionSignalCollector {
     
     func dispose() {
         stopCollecting()
+        stopRawBatchTimer()
         sampleQueue.async(flags: .barrier) {
             self.accelerometerSamples.removeAll()
             self.gyroscopeSamples.removeAll()
             self.motionDataPoints.removeAll()
         }
+    }
+
+    // MARK: - Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3)
+
+    private func updateRawBatchTimer() {
+        let shouldEmit = config.emitRawMotionSamples
+            && rawSampleBatchHandler != nil
+            && sessionStartTime > 0
+        if shouldEmit && rawBatchTimer == nil {
+            startRawBatchTimer()
+        } else if !shouldEmit {
+            stopRawBatchTimer()
+        }
+    }
+
+    private func startRawBatchTimer() {
+        let interval = rawBatchIntervalMs / 1000.0
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.rawBatchTimer?.invalidate()
+            self.rawBatchTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+                self?.flushRawBatch()
+            }
+        }
+    }
+
+    private func stopRawBatchTimer() {
+        DispatchQueue.main.async { [weak self] in
+            self?.rawBatchTimer?.invalidate()
+            self?.rawBatchTimer = nil
+        }
+    }
+
+    /// Pull samples accumulated since the last flush and forward to the
+    /// runtime via the registered handler. Trims the per-axis buffer to the
+    /// last 10 seconds so memory stays bounded if no consumer is attached.
+    private func flushRawBatch() {
+        guard let handler = rawSampleBatchHandler, config.emitRawMotionSamples else { return }
+        let nowMs = Date().timeIntervalSince1970 * 1000
+
+        let batch: [[String: Any]] = sampleQueue.sync(flags: .barrier) {
+            let cutoffStart = self.lastRawBatchEndMs
+            let recent = self.accelerometerSamples.filter { $0.timestamp > cutoffStart && $0.timestamp <= nowMs }
+            // Buffer trim — keep ≤ 10 s of history regardless of consumer state.
+            let trimCutoff = nowMs - 10_000
+            self.accelerometerSamples.removeAll { $0.timestamp < trimCutoff }
+            self.lastRawBatchEndMs = nowMs
+            return recent.map { sample in
+                [
+                    "ts_ms": Int64(sample.timestamp),
+                    "ax": sample.x,
+                    "ay": sample.y,
+                    "az": sample.z,
+                ] as [String: Any]
+            }
+        }
+        if batch.isEmpty { return }
+        handler(batch)
     }
 }
 

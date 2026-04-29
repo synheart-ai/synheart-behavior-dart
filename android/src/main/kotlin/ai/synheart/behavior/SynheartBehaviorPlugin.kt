@@ -132,6 +132,7 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                         enableAttentionSignals = config["enableAttentionSignals"] as? Boolean
                                         ?: true,
                         enableMotionLite = config["enableMotionLite"] as? Boolean ?: false,
+                        emitRawMotionSamples = config["emitRawMotionSamples"] as? Boolean ?: false,
                         sessionIdPrefix = config["sessionIdPrefix"] as? String,
                         eventBatchSize = config["eventBatchSize"] as? Int ?: 10,
                         maxIdleGapSeconds = config["maxIdleGapSeconds"] as? Double ?: 10.0
@@ -140,6 +141,9 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         behaviorSDK = BehaviorSDK(context!!, behaviorConfig)
         behaviorSDK?.initialize()
         behaviorSDK?.setEventHandler { event -> emitEvent(event.toMap()) }
+        behaviorSDK?.setMotionSampleBatchHandler { batch ->
+            channel.invokeMethod("onMotionSampleBatch", mapOf("samples" to batch))
+        }
 
         // Activity may have already attached BEFORE Dart called initialize()
         // — FlutterPlugin lifecycle on Android fires `onAttachedToActivity`
@@ -236,6 +240,7 @@ class SynheartBehaviorPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                         enableAttentionSignals = config["enableAttentionSignals"] as? Boolean
                                         ?: true,
                         enableMotionLite = config["enableMotionLite"] as? Boolean ?: false,
+                        emitRawMotionSamples = config["emitRawMotionSamples"] as? Boolean ?: false,
                         sessionIdPrefix = config["sessionIdPrefix"] as? String,
                         eventBatchSize = config["eventBatchSize"] as? Int ?: 10,
                         maxIdleGapSeconds = config["maxIdleGapSeconds"] as? Double ?: 10.0

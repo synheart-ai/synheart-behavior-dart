@@ -40,6 +40,19 @@ class MotionSignalCollector(private val context: Context, private var config: Be
     private val timeWindowMs: Long = 5000L
     private var lastWindowEndTime: Long = 0
 
+    // Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3).
+    private var rawSampleBatchHandler: ((List<Map<String, Any>>) -> Unit)? = null
+    private var lastRawBatchEndMs: Long = 0
+    private val rawBatchIntervalMs: Long = 1000L
+    private val rawBatchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val rawBatchRunnable = object : Runnable {
+        override fun run() {
+            flushRawBatch()
+            rawBatchHandler.postDelayed(this, rawBatchIntervalMs)
+        }
+    }
+    private var rawBatchTimerActive = false
+
     // ISO 8601 formatter for timestamps
     private val timestampFormatter = DateTimeFormatter.ISO_INSTANT
 
@@ -53,25 +66,34 @@ class MotionSignalCollector(private val context: Context, private var config: Be
 
     fun updateConfig(newConfig: BehaviorConfig) {
         config = newConfig
-        if (!config.enableMotionLite && isCollecting) {
+        val shouldCollect = config.enableMotionLite || config.emitRawMotionSamples
+        if (!shouldCollect && isCollecting) {
             stopCollecting()
-        } else if (config.enableMotionLite && !isCollecting && sessionStartTime > 0) {
+        } else if (shouldCollect && !isCollecting && sessionStartTime > 0) {
             startCollecting()
         }
+        updateRawBatchTimer()
+    }
+
+    fun setRawSampleBatchHandler(handler: (List<Map<String, Any>>) -> Unit) {
+        rawSampleBatchHandler = handler
+        updateRawBatchTimer()
     }
 
     fun startSession(sessionStartTime: Long) {
         this.sessionStartTime = sessionStartTime
         this.lastWindowEndTime = sessionStartTime
+        this.lastRawBatchEndMs = sessionStartTime
 
         // Clear previous data
         accelerometerSamples.clear()
         gyroscopeSamples.clear()
         motionDataPoints.clear()
 
-        if (config.enableMotionLite) {
+        if (config.enableMotionLite || config.emitRawMotionSamples) {
             startCollecting()
         }
+        updateRawBatchTimer()
     }
 
     fun stopSession(): List<MotionDataPoint> {
@@ -79,6 +101,8 @@ class MotionSignalCollector(private val context: Context, private var config: Be
 
         // Flush any remaining samples in the current window
         flushCurrentWindow()
+        flushRawBatch()
+        stopRawBatchTimer()
 
         // Return collected motion data
         return motionDataPoints.toList()
@@ -92,7 +116,8 @@ class MotionSignalCollector(private val context: Context, private var config: Be
     }
 
     private fun startCollecting() {
-        if (isCollecting || !config.enableMotionLite) return
+        if (isCollecting) return
+        if (!config.enableMotionLite && !config.emitRawMotionSamples) return
 
         sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         if (sensorManager == null) {
@@ -236,8 +261,74 @@ class MotionSignalCollector(private val context: Context, private var config: Be
 
     fun dispose() {
         stopCollecting()
+        stopRawBatchTimer()
         accelerometerSamples.clear()
         gyroscopeSamples.clear()
         motionDataPoints.clear()
+    }
+
+    // MARK: - Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3)
+
+    private fun updateRawBatchTimer() {
+        val shouldEmit = config.emitRawMotionSamples &&
+                rawSampleBatchHandler != null &&
+                sessionStartTime > 0
+        if (shouldEmit && !rawBatchTimerActive) {
+            rawBatchTimerActive = true
+            rawBatchHandler.postDelayed(rawBatchRunnable, rawBatchIntervalMs)
+        } else if (!shouldEmit) {
+            stopRawBatchTimer()
+        }
+    }
+
+    private fun stopRawBatchTimer() {
+        if (rawBatchTimerActive) {
+            rawBatchHandler.removeCallbacks(rawBatchRunnable)
+            rawBatchTimerActive = false
+        }
+    }
+
+    /**
+     * Pull samples accumulated since the last flush and forward to the
+     * runtime via the registered handler. Trims the per-axis buffer to the
+     * last 10 seconds so memory stays bounded if no consumer is attached.
+     */
+    private fun flushRawBatch() {
+        val handler = rawSampleBatchHandler ?: return
+        if (!config.emitRawMotionSamples) return
+        val nowMs = System.currentTimeMillis()
+        val cutoffStart = lastRawBatchEndMs
+        val trimCutoff = nowMs - 10_000L
+
+        val batch = mutableListOf<Map<String, Any>>()
+        // Drain newer-than-cutoff samples; trim older ones.
+        val keep = ArrayList<Pair<Long, FloatArray>>(accelerometerSamples.size)
+        for (entry in accelerometerSamples) {
+            val ts = entry.first
+            if (ts <= cutoffStart) {
+                if (ts >= trimCutoff) keep.add(entry)
+                continue
+            }
+            if (ts > nowMs) {
+                keep.add(entry)
+                continue
+            }
+            val axes = entry.second
+            batch.add(
+                mapOf(
+                    "ts_ms" to ts,
+                    "ax" to axes[0].toDouble(),
+                    "ay" to axes[1].toDouble(),
+                    "az" to axes[2].toDouble(),
+                ) as Map<String, Any>
+            )
+            if (ts >= trimCutoff) keep.add(entry)
+        }
+        accelerometerSamples.clear()
+        accelerometerSamples.addAll(keep)
+        lastRawBatchEndMs = nowMs
+
+        if (batch.isEmpty()) return
+        handler(batch)
     }
 }

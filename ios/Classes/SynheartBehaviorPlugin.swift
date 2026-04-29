@@ -108,6 +108,7 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
             enableInputSignals: config["enableInputSignals"] as? Bool ?? true,
             enableAttentionSignals: config["enableAttentionSignals"] as? Bool ?? true,
             enableMotionLite: config["enableMotionLite"] as? Bool ?? false,
+            emitRawMotionSamples: config["emitRawMotionSamples"] as? Bool ?? false,
             sessionIdPrefix: config["sessionIdPrefix"] as? String,
             eventBatchSize: config["eventBatchSize"] as? Int ?? 10,
             maxIdleGapSeconds: config["maxIdleGapSeconds"] as? Double ?? 10.0
@@ -117,6 +118,9 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
         behaviorSDK?.initialize()
         behaviorSDK?.setEventHandler { [weak self] event in
             self?.emitEvent(event: event.toDictionary())
+        }
+        behaviorSDK?.setMotionSampleBatchHandler { [weak self] batch in
+            self?.channel?.invokeMethod("onMotionSampleBatch", arguments: ["samples": batch])
         }
 
         // Native view attachment — captures taps / scrolls / swipes via
@@ -210,6 +214,7 @@ public class SynheartBehaviorPlugin: NSObject, FlutterPlugin {
             enableInputSignals: config["enableInputSignals"] as? Bool ?? true,
             enableAttentionSignals: config["enableAttentionSignals"] as? Bool ?? true,
             enableMotionLite: config["enableMotionLite"] as? Bool ?? false,
+            emitRawMotionSamples: config["emitRawMotionSamples"] as? Bool ?? false,
             sessionIdPrefix: config["sessionIdPrefix"] as? String,
             eventBatchSize: config["eventBatchSize"] as? Int ?? 10,
             maxIdleGapSeconds: config["maxIdleGapSeconds"] as? Double ?? 10.0

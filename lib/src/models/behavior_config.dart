@@ -10,6 +10,19 @@ class BehaviorConfig {
   /// Note: This is optional and may have higher battery impact.
   final bool enableMotionLite;
 
+  /// Emit raw 50 Hz accelerometer samples on [SynheartBehavior.onMotionSample].
+  ///
+  /// When `true`, the native motion collector batches its sample buffer and
+  /// pushes it to Dart once per second so a downstream runtime
+  /// (`synheart-core-flutter` → `synheart-core-runtime`) can derive features
+  /// and run motion-state classification per RFC-MOTION-STATE-0001.
+  ///
+  /// Independent of [enableMotionLite]: the raw stream is for the runtime;
+  /// `enableMotionLite` drives the SDK's own (legacy) on-device motion
+  /// classifier. Set this `true` *and* `enableMotionLite` `false` to ship
+  /// only the collector-side path.
+  final bool emitRawMotionSamples;
+
   /// Custom session ID prefix. If null, auto-generated.
   final String? sessionIdPrefix;
 
@@ -40,6 +53,7 @@ class BehaviorConfig {
     this.enableInputSignals = true,
     this.enableAttentionSignals = true,
     this.enableMotionLite = false,
+    this.emitRawMotionSamples = false,
     this.sessionIdPrefix,
     this.eventBatchSize = 10,
     this.maxIdleGapSeconds = 10.0,
@@ -53,6 +67,7 @@ class BehaviorConfig {
         'enableInputSignals': enableInputSignals,
         'enableAttentionSignals': enableAttentionSignals,
         'enableMotionLite': enableMotionLite,
+        'emitRawMotionSamples': emitRawMotionSamples,
         'sessionIdPrefix': sessionIdPrefix,
         'eventBatchSize': eventBatchSize,
         'maxIdleGapSeconds': maxIdleGapSeconds,

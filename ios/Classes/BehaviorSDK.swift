@@ -10,6 +10,7 @@ public class BehaviorSDK {
 
     private let config: BehaviorConfig
     private var eventHandler: ((BehaviorEvent) -> Void)?
+    private var motionSampleBatchHandler: (([[String: Any]]) -> Void)?
     private var currentSessionId: String?
     private var sessionData: [String: SessionData] = [:]
     private var sessionMotionData: [String: [MotionSignalCollector.MotionDataPoint]] = [:]
@@ -112,6 +113,17 @@ public class BehaviorSDK {
 
     public func setEventHandler(_ handler: @escaping (BehaviorEvent) -> Void) {
         self.eventHandler = handler
+    }
+
+    /// Receive 1-second batches of raw 50 Hz accel samples for the runtime
+    /// to consume via `push_accel`. Each entry is
+    /// `["ts_ms": Int64, "ax": Double, "ay": Double, "az": Double]`.
+    /// Only invoked when `BehaviorConfig.emitRawMotionSamples == true`.
+    public func setMotionSampleBatchHandler(_ handler: @escaping ([[String: Any]]) -> Void) {
+        self.motionSampleBatchHandler = handler
+        motionSignalCollector.setRawSampleBatchHandler { [weak self] batch in
+            self?.motionSampleBatchHandler?(batch)
+        }
     }
 
     public func startSession(sessionId: String) {
@@ -878,6 +890,9 @@ public struct BehaviorConfig {
     public let enableInputSignals: Bool
     public let enableAttentionSignals: Bool
     public let enableMotionLite: Bool
+    /// Emit raw 50 Hz accel batches over MethodChannel for the runtime to consume
+    /// (RFC-MOTION-STATE-0001 Phase 3). Independent of `enableMotionLite`.
+    public let emitRawMotionSamples: Bool
     public let sessionIdPrefix: String?
     public let eventBatchSize: Int
     public let maxIdleGapSeconds: Double
@@ -886,6 +901,7 @@ public struct BehaviorConfig {
         enableInputSignals: Bool = true,
         enableAttentionSignals: Bool = true,
         enableMotionLite: Bool = false,
+        emitRawMotionSamples: Bool = false,
         sessionIdPrefix: String? = nil,
         eventBatchSize: Int = 10,
         maxIdleGapSeconds: Double = 10.0
@@ -893,6 +909,7 @@ public struct BehaviorConfig {
         self.enableInputSignals = enableInputSignals
         self.enableAttentionSignals = enableAttentionSignals
         self.enableMotionLite = enableMotionLite
+        self.emitRawMotionSamples = emitRawMotionSamples
         self.sessionIdPrefix = sessionIdPrefix
         self.eventBatchSize = eventBatchSize
         self.maxIdleGapSeconds = maxIdleGapSeconds

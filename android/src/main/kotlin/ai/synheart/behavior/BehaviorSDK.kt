@@ -25,6 +25,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         LifecycleObserver {
 
     private var eventHandler: ((BehaviorEvent) -> Unit)? = null
+    private var motionSampleBatchHandler: ((List<Map<String, Any>>) -> Unit)? = null
     private var currentSessionId: String? = null
     private val sessionData = ConcurrentHashMap<String, SessionData>()
     private val sessionMotionData =
@@ -119,6 +120,19 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
     fun setEventHandler(handler: (BehaviorEvent) -> Unit) {
         this.eventHandler = handler
+    }
+
+    /**
+     * Receive 1-second batches of raw 50 Hz accel samples for the runtime to
+     * consume via `push_accel`. Each entry is
+     * `{"ts_ms": Long, "ax": Double, "ay": Double, "az": Double}`. Only fires
+     * when [BehaviorConfig.emitRawMotionSamples] is `true`.
+     */
+    fun setMotionSampleBatchHandler(handler: (List<Map<String, Any>>) -> Unit) {
+        this.motionSampleBatchHandler = handler
+        motionSignalCollector.setRawSampleBatchHandler { batch ->
+            this.motionSampleBatchHandler?.invoke(batch)
+        }
     }
 
     fun startSession(sessionId: String) {
@@ -960,6 +974,12 @@ data class BehaviorConfig(
         val enableInputSignals: Boolean = true,
         val enableAttentionSignals: Boolean = true,
         val enableMotionLite: Boolean = false,
+        /**
+         * Emit raw 50 Hz accel batches over MethodChannel for the runtime to
+         * consume (RFC-MOTION-STATE-0001 Phase 3). Independent of
+         * [enableMotionLite].
+         */
+        val emitRawMotionSamples: Boolean = false,
         val sessionIdPrefix: String? = null,
         val eventBatchSize: Int = 10,
         val maxIdleGapSeconds: Double = 10.0
