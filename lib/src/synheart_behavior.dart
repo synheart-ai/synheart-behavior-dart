@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'models/behavior_config.dart';
 import 'models/behavior_event.dart';
 import 'models/behavior_session.dart'
-    show BehaviorSession, BehaviorSessionSummary, MotionDataPoint;
+    show BehaviorSession, BehaviorSessionSummary;
 import 'models/behavior_stats.dart';
 import 'models/motion_sample.dart';
 // Window features - commented out (not needed for real-time event tracking)
@@ -16,7 +16,6 @@ import 'models/motion_sample.dart';
 // import 'behavior_feature_extractor.dart';
 import 'behavior_gesture_detector.dart'
     show BehaviorGestureDetector, BehaviorTextField;
-import 'motion_state_inference.dart';
 
 /// Main entry point for the Synheart Behavioral SDK.
 ///
@@ -76,7 +75,6 @@ class SynheartBehavior {
 
   bool _initialized = false;
   String? _currentSessionId;
-  final MotionStateInference _motionStateInference = MotionStateInference();
 
   /// Optional callback invoked immediately when an event is received from native,
   /// before adding to the stream. Use this to avoid missing events that arrive
@@ -106,14 +104,11 @@ class SynheartBehavior {
       // Initialize native SDK
       await _channel.invokeMethod('initialize', effectiveConfig.toJson());
 
-      // Load motion state inference model
-      if (effectiveConfig.enableMotionLite) {
-        try {
-          await behavior._motionStateInference.loadModel();
-        } catch (_) {
-          // Continue initialization even if model loading fails
-        }
-      }
+      // Motion-state classification was previously inferred locally via an
+      // ONNX SVC. As of RFC-MOTION-STATE-0001, that path is removed — raw
+      // accel samples are forwarded to the engine runtime via
+      // `BehaviorConfig.emitRawMotionSamples`, and `MotionStateHead` in
+      // `synheart-state-runtime` does the classification.
 
       // Window features - commented out (not needed for real-time event tracking)
       // behavior._startWindowUpdates();
@@ -348,57 +343,14 @@ class SynheartBehavior {
           : throw Exception('Invalid result type: ${result.runtimeType}');
 
       // print('Parsing summary from resultMap...');
-      var summary = BehaviorSessionSummary.fromJson(resultMap);
+      final summary = BehaviorSessionSummary.fromJson(resultMap);
       // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
-      // Run motion state inference if enabled and motion data is available
-      if (_config.enableMotionLite &&
-          summary.motionData != null &&
-          summary.motionData!.isNotEmpty) {
-        if (!_motionStateInference.isLoaded) {
-          try {
-            await _motionStateInference.loadModel();
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('SynheartBehavior: Failed to load motion model: $e');
-            }
-          }
-        }
-
-        if (_motionStateInference.isLoaded) {
-          try {
-            final motionState = await _motionStateInference.inferMotionState(
-              summary.motionData!,
-            );
-
-            // Create updated summary with motion state
-            summary = BehaviorSessionSummary(
-              sessionId: summary.sessionId,
-              startAt: summary.startAt,
-              endAt: summary.endAt,
-              microSession: summary.microSession,
-              os: summary.os,
-              appId: summary.appId,
-              appName: summary.appName,
-              sessionSpacing: summary.sessionSpacing,
-              motionState: motionState,
-              deviceContext: summary.deviceContext,
-              activitySummary: summary.activitySummary,
-              behavioralMetrics: summary.behavioralMetrics,
-              notificationSummary: summary.notificationSummary,
-              systemState: summary.systemState,
-              typingSessionSummary: summary.typingSessionSummary,
-              motionData: summary.motionData,
-              performanceInfo: summary.performanceInfo,
-            );
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('SynheartBehavior: Motion inference failed: $e');
-            }
-            // Continue without motion state if inference fails
-          }
-        }
-      }
+      // Motion-state classification moved to the engine runtime per
+      // RFC-MOTION-STATE-0001. The session summary no longer carries
+      // `motion_state` / `motion_data`; consumers read motion state from
+      // the runtime's HSI snapshot via `synheart-core-flutter`'s
+      // `BehaviorModule.motionStateUpdates`.
 
       _activeSessions.remove(sessionId);
       if (_currentSessionId == sessionId) {
@@ -568,9 +520,6 @@ class SynheartBehavior {
       // Clear window aggregator
       // _windowAggregator.clear();
 
-      // Dispose motion state inference
-      await _motionStateInference.dispose();
-
       _initialized = false;
     } catch (e) {
       throw Exception('Failed to dispose SDK: $e');
@@ -620,8 +569,6 @@ class SynheartBehavior {
   /// - behavioral_metrics: Interaction intensity, task switch rate, etc.
   /// - device_context: Screen brightness, orientation changes
   /// - system_state: Internet, DND, charging status
-  /// - motion_state: ML-inferred motion state (if motion data available)
-  /// - motion_data: Raw motion data points with ML features
   /// - activity_summary: Event counts and app switches
   /// - notification_summary: Notification metrics
   /// - typing_session_summary: Typing metrics (if available)
@@ -645,56 +592,12 @@ class SynheartBehavior {
           'sessionId': sessionId ?? _currentSessionId,
         },
       );
-      var metrics = Map<String, dynamic>.from(result as Map);
+      final metrics = Map<String, dynamic>.from(result as Map);
 
-      // Run motion state inference if enabled and motion data is available
-      if (_config.enableMotionLite &&
-          metrics['motion_data'] != null &&
-          metrics['motion_data'] is List &&
-          (metrics['motion_data'] as List).isNotEmpty) {
-        if (!_motionStateInference.isLoaded) {
-          try {
-            await _motionStateInference.loadModel();
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('SynheartBehavior: Failed to load motion model: $e');
-            }
-            // Continue without motion state if model loading fails
-          }
-        }
-
-        if (_motionStateInference.isLoaded) {
-          try {
-            // Convert motion data from map format to MotionDataPoint list
-            final motionDataList = (metrics['motion_data'] as List).map((item) {
-              final map = Map<String, dynamic>.from(item as Map);
-              final featuresMap =
-                  Map<String, dynamic>.from(map['features'] as Map);
-              final features = featuresMap.map(
-                  (key, value) => MapEntry(key, (value as num).toDouble()));
-              return MotionDataPoint(
-                timestamp: map['timestamp'] as String,
-                features: features,
-              );
-            }).toList();
-
-            final motionState = await _motionStateInference.inferMotionState(
-              motionDataList,
-            );
-
-            // Update metrics with computed motion state
-            metrics['motion_state'] = motionState.toJson();
-          } catch (e, stackTrace) {
-            if (kDebugMode) {
-              debugPrint(
-                'SynheartBehavior: Motion inference failed for on-demand: $e',
-              );
-              debugPrint('$stackTrace');
-            }
-            // Continue without motion state if inference fails
-          }
-        }
-      }
+      // Motion-state classification moved to the engine runtime per
+      // RFC-MOTION-STATE-0001. The behavior SDK no longer surfaces
+      // `motion_state` / `motion_data` on this map; consumers read motion
+      // state from the runtime's HSI snapshot.
 
       return metrics;
     } catch (e) {

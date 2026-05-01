@@ -1,30 +1,22 @@
 import Foundation
 import CoreMotion
 
-/// Collects raw motion sensor data (accelerometer and gyroscope).
-/// Privacy: Only raw motion patterns, no location or context.
+/// Collects raw 50 Hz accelerometer samples and forwards them to the runtime
+/// in 1-second batches for `MotionStateHead` (RFC-MOTION-STATE-0001) to
+/// classify. The legacy 561-feature ML path was removed in Phase 4.
 ///
-/// Collects raw samples and aggregates them into time windows (5 seconds).
-/// Calculates 561 ML features per window for model input.
+/// Privacy: only raw motion timing/values, no location or content.
 class MotionSignalCollector {
-    
+
     private var config: BehaviorConfig
     private var motionManager: CMMotionManager?
-    
+
     private var isCollecting = false
     private var sessionStartTime: Double = 0
-    
-    // Raw sample buffers (thread-safe using DispatchQueue)
+
+    // Raw accel buffer (thread-safe via concurrent DispatchQueue + barrier writes).
     private let sampleQueue = DispatchQueue(label: "ai.synheart.motion.samples", attributes: .concurrent)
     private var accelerometerSamples: [(timestamp: Double, x: Double, y: Double, z: Double)] = []
-    private var gyroscopeSamples: [(timestamp: Double, x: Double, y: Double, z: Double)] = []
-    
-    // Aggregated motion data (per time window)
-    private var motionDataPoints: [MotionDataPoint] = []
-    
-    // Time window configuration (5 seconds = 5000ms)
-    private let timeWindowMs: Double = 5000.0
-    private var lastWindowEndTime: Double = 0
 
     // Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3).
     // Forwards a 1-second slice of the accel buffer to the runtime so
@@ -33,22 +25,7 @@ class MotionSignalCollector {
     private var rawBatchTimer: Timer?
     private var lastRawBatchEndMs: Double = 0
     private let rawBatchIntervalMs: Double = 1000.0
-    
-    // ISO 8601 formatter for timestamps
-    private let timestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-    
-    struct MotionDataPoint {
-        let timestamp: String // ISO 8601 format (5-second window)
-        let features: [String: Double] // 561 ML features
-    }
-    
-    // Feature extractor for calculating ML features
-    private let featureExtractor = MotionFeatureExtractor()
-    
+
     init(config: BehaviorConfig) {
         self.config = config
     }
@@ -75,14 +52,11 @@ class MotionSignalCollector {
     
     func startSession(sessionStartTime: Double) {
         self.sessionStartTime = sessionStartTime
-        self.lastWindowEndTime = sessionStartTime
         self.lastRawBatchEndMs = sessionStartTime
 
         // Clear previous data
         sampleQueue.async(flags: .barrier) {
             self.accelerometerSamples.removeAll()
-            self.gyroscopeSamples.removeAll()
-            self.motionDataPoints.removeAll()
         }
 
         if config.enableMotionLite || config.emitRawMotionSamples {
@@ -90,163 +64,70 @@ class MotionSignalCollector {
         }
         updateRawBatchTimer()
     }
-    
-    func stopSession() -> [MotionDataPoint] {
-        stopCollecting()
 
-        // Flush any remaining samples in the current window
-        flushCurrentWindow()
+    func stopSession() {
+        stopCollecting()
         flushRawBatch()
         stopRawBatchTimer()
-
-        // Return collected motion data
-        return sampleQueue.sync {
-            return motionDataPoints
-        }
-    }
-    
-    func getCurrentMotionData() -> [MotionDataPoint] {
-        // Flush current window to ensure we have the latest data
-        flushCurrentWindow()
-        // Return current motion data without stopping collection
-        return sampleQueue.sync {
-            return motionDataPoints
-        }
     }
     
     private func startCollecting() {
         if isCollecting { return }
         guard config.enableMotionLite || config.emitRawMotionSamples else { return }
-        
+
         motionManager = CMMotionManager()
         guard let motionManager = motionManager else {
             print("MotionSignalCollector: CMMotionManager not available")
             return
         }
-        
-        // Check if sensors are available
-        if !motionManager.isAccelerometerAvailable || !motionManager.isGyroAvailable {
-            print("MotionSignalCollector: Motion sensors not available on this device")
+
+        if !motionManager.isAccelerometerAvailable {
+            print("MotionSignalCollector: Accelerometer not available on this device")
             return
         }
-        
-        // Set update interval (default: 0.02 seconds = 50Hz)
-        motionManager.accelerometerUpdateInterval = 0.02 // 50Hz
-        motionManager.gyroUpdateInterval = 0.02 // 50Hz
-        
-        // Start accelerometer updates
+
+        // 50 Hz — matches the runtime's session-runtime default.
+        motionManager.accelerometerUpdateInterval = 0.02
+
+        // CMAccelerometerData.acceleration is in **G-units** (1.0 = 9.81 m/s²).
+        // The runtime expects m/s² (matches Android's Sensor.TYPE_ACCELEROMETER
+        // and what session-runtime's GRAVITY_MAG_MIN/MAX bounds (6.0–14.0)
+        // sanity-check against). Convert here so downstream code stays
+        // unit-consistent across platforms.
+        let gToMs2: Double = 9.80665
         motionManager.startAccelerometerUpdates(to: OperationQueue()) { [weak self] (data, error) in
             guard let self = self, let data = data, error == nil else { return }
-            
+
             let timestamp = Date().timeIntervalSince1970 * 1000 // milliseconds
             self.sampleQueue.async(flags: .barrier) {
                 self.accelerometerSamples.append((
                     timestamp: timestamp,
-                    x: data.acceleration.x,
-                    y: data.acceleration.y,
-                    z: data.acceleration.z
-                ))
-            }
-            
-            // Check if we need to flush the current window
-            // Use time boundaries, not event timestamps, to ensure consistent window creation
-            while timestamp >= self.lastWindowEndTime + self.timeWindowMs {
-                self.flushCurrentWindow()
-                self.lastWindowEndTime = self.lastWindowEndTime + self.timeWindowMs // Use window boundary, not event timestamp
-            }
-        }
-        
-        // Start gyroscope updates
-        motionManager.startGyroUpdates(to: OperationQueue()) { [weak self] (data, error) in
-            guard let self = self, let data = data, error == nil else { return }
-            
-            let timestamp = Date().timeIntervalSince1970 * 1000 // milliseconds
-            self.sampleQueue.async(flags: .barrier) {
-                self.gyroscopeSamples.append((
-                    timestamp: timestamp,
-                    x: data.rotationRate.x,
-                    y: data.rotationRate.y,
-                    z: data.rotationRate.z
+                    x: data.acceleration.x * gToMs2,
+                    y: data.acceleration.y * gToMs2,
+                    z: data.acceleration.z * gToMs2
                 ))
             }
         }
-        
+
         isCollecting = true
         print("MotionSignalCollector: Started collecting motion data")
     }
-    
+
     private func stopCollecting() {
         if !isCollecting { return }
-        
+
         motionManager?.stopAccelerometerUpdates()
-        motionManager?.stopGyroUpdates()
         motionManager = nil
-        
+
         isCollecting = false
         print("MotionSignalCollector: Stopped collecting motion data")
     }
-    
-    private func flushCurrentWindow() {
-        let windowStartTime = lastWindowEndTime
-        let windowEndTime = Date().timeIntervalSince1970 * 1000
-        
-        sampleQueue.async(flags: .barrier) {
-            // Collect all samples within this window
-            let accelSamples = self.accelerometerSamples.filter { sample in
-                sample.timestamp >= windowStartTime && sample.timestamp < windowEndTime
-            }
-            
-            let gyroSamples = self.gyroscopeSamples.filter { sample in
-                sample.timestamp >= windowStartTime && sample.timestamp < windowEndTime
-            }
-            
-            // Remove processed samples
-            self.accelerometerSamples.removeAll { $0.timestamp < windowEndTime }
-            self.gyroscopeSamples.removeAll { $0.timestamp < windowEndTime }
-            
-            // Only create data point if we have samples
-            if !accelSamples.isEmpty || !gyroSamples.isEmpty {
-                // Sort by timestamp to ensure consistent ordering
-                let sortedAccel = accelSamples.sorted { $0.timestamp < $1.timestamp }
-                let sortedGyro = gyroSamples.sorted { $0.timestamp < $1.timestamp }
-                
-                // Extract raw values
-                let accelX = sortedAccel.map { $0.x }
-                let accelY = sortedAccel.map { $0.y }
-                let accelZ = sortedAccel.map { $0.z }
-                
-                let gyroX = sortedGyro.map { $0.x }
-                let gyroY = sortedGyro.map { $0.y }
-                let gyroZ = sortedGyro.map { $0.z }
-                
-                // Extract 561 ML features from raw sensor data
-                let features = self.featureExtractor.extractFeatures(
-                    accelX: accelX, accelY: accelY, accelZ: accelZ,
-                    gyroX: gyroX, gyroY: gyroY, gyroZ: gyroZ
-                )
-                
-                // Create timestamp for this window (use window start time)
-                let timestampDate = Date(timeIntervalSince1970: windowStartTime / 1000)
-                let timestampString = self.timestampFormatter.string(from: timestampDate)
-                
-                // Create motion data point with ML features
-                let dataPoint = MotionDataPoint(
-                    timestamp: timestampString,
-                    features: features
-                )
-                
-                self.motionDataPoints.append(dataPoint)
-            }
-        }
-    }
-    
+
     func dispose() {
         stopCollecting()
         stopRawBatchTimer()
         sampleQueue.async(flags: .barrier) {
             self.accelerometerSamples.removeAll()
-            self.gyroscopeSamples.removeAll()
-            self.motionDataPoints.removeAll()
         }
     }
 

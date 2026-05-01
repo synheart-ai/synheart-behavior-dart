@@ -87,17 +87,45 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
         }
         return false; // Don't consume the notification
       },
+      // Listener-only design (2026-04-30): we used to wrap `child` in a
+      // GestureDetector with onPan*. That detector enters Flutter's
+      // gesture arena and pan recognizers compete with tap recognizers
+      // in child buttons — on real devices the slightest finger
+      // micro-movement during a tap let the pan recognizer win and
+      // cancelled the child's onTap. Behavior log captured the touch
+      // (pointer events bypass the arena, so the Listener still fired)
+      // but the buttons never responded.
+      //
+      // Listener uses raw pointer callbacks that DON'T participate in
+      // the gesture arena, so it can never steal a gesture from a
+      // child. We synthesise the pan-style swipe classification from
+      // onPointerMove (delta vs. _swipeStartPosition) and emit on
+      // onPointerUp — same metrics as before, no arena conflict.
       child: Listener(
         behavior: HitTestBehavior.translucent, // Don't block child widgets
         onPointerDown: (event) {
-          // Track tap down time for tap detection
           _tapDownTime = DateTime.now();
-          _hasScrolledSinceTapDown = false; // Reset scroll flag
-          _hasSwipedSinceTapDown = false; // Reset swipe flag
+          _hasScrolledSinceTapDown = false;
+          _hasSwipedSinceTapDown = false;
+          // Swipe state initialized at touch-down (vs. the old onPanStart
+          // which fired only after the kPanSlop threshold). Classification
+          // still gates on `_swipeThresholdPx`, so this just gives us a
+          // consistent reference point for delta computation.
+          _swipeStartTime = DateTime.now();
+          _swipeStartPosition = event.position;
+          _swipeLastPosition = event.position;
+          _isSwipe = false;
+        },
+        onPointerMove: (event) {
+          _swipeLastPosition = event.position;
+          _classifySwipeFromPointer(event.position);
         },
         onPointerUp: (event) {
-          // Delay tap handling to let buttons handle their clicks first
-          // Only emit tap event if it wasn't a swipe and no scroll occurred
+          // Settle swipe classification first (synchronous), then defer
+          // tap so the swipe verdict is in place when _handleTap reads
+          // `_isSwipe`. Without ordering this, a quick swipe could be
+          // logged as both a swipe and a tap.
+          _finalizeSwipe();
           Future.delayed(const Duration(milliseconds: 150), () {
             if (_tapDownTime != null &&
                 !_isSwipe &&
@@ -114,25 +142,12 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
           _tapDownTime = null;
           _hasScrolledSinceTapDown = false;
           _hasSwipedSinceTapDown = false;
+          _swipeStartTime = null;
+          _swipeStartPosition = null;
+          _swipeLastPosition = null;
+          _isSwipe = false;
         },
-        child: GestureDetector(
-          behavior: HitTestBehavior
-              .deferToChild, // Let children handle gestures first
-          onPanStart: (details) {
-            _swipeStartTime = DateTime.now();
-            _swipeStartPosition = details.globalPosition;
-            _swipeLastPosition = details.globalPosition;
-            _isSwipe = false;
-          },
-          onPanUpdate: (details) {
-            _swipeLastPosition = details.globalPosition;
-            _handlePan(details);
-          },
-          onPanEnd: (details) {
-            _handlePanEnd(details);
-          },
-          child: widget.child,
-        ),
+        child: widget.child,
       ),
     );
   }
@@ -445,22 +460,27 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
     _tapDownTime = null;
   }
 
-  void _handlePan(DragUpdateDetails details) {
+  /// Classify whether the cumulative drag from `_swipeStartPosition`
+  /// to the current pointer position has crossed the swipe threshold.
+  /// Mirrors the old `_handlePan(DragUpdateDetails)` logic, but sourced
+  /// from raw pointer events so we stay out of the gesture arena.
+  void _classifySwipeFromPointer(Offset currentPosition) {
     if (_swipeStartPosition == null || _swipeStartTime == null) return;
 
-    final currentPosition = details.globalPosition;
     final delta = currentPosition - _swipeStartPosition!;
     final distance = delta.distance;
 
-    // Only treat as swipe if movement is significant AND primarily horizontal
-    // Check if horizontal movement is greater than vertical movement
+    // Only treat as swipe if movement is significant AND primarily horizontal.
     if (distance > _swipeThresholdPx && delta.dx.abs() > delta.dy.abs()) {
       _isSwipe = true;
-      _hasSwipedSinceTapDown = true; // Mark that swipe occurred during tap
+      _hasSwipedSinceTapDown = true;
     }
   }
 
-  void _handlePanEnd(DragEndDetails details) {
+  /// Emit the swipe event (if classified) and reset swipe state.
+  /// Called synchronously from `onPointerUp` so a subsequent quick
+  /// re-touch can begin a fresh swipe with clean state.
+  void _finalizeSwipe() {
     if (_swipeStartPosition == null ||
         _swipeStartTime == null ||
         _swipeLastPosition == null ||
@@ -475,21 +495,14 @@ class _BehaviorGestureDetectorState extends State<BehaviorGestureDetector> {
     final durationMs = now.difference(_swipeStartTime!).inMilliseconds;
 
     if (durationMs > 0) {
-      // Use the last position to calculate distance
       final delta = _swipeLastPosition! - _swipeStartPosition!;
       final distancePx = delta.distance;
       final velocity = (distancePx / durationMs * 1000).clamp(0.0, 10000.0);
-
-      // Calculate acceleration (change in velocity over time)
-      // Simplified: use velocity and duration
       final acceleration =
           durationMs > 100 ? (velocity / (durationMs / 1000.0)) : 0.0;
 
-      // Determine swipe direction (horizontal only: left or right)
-      SwipeDirection direction;
-      // Right swipe: positive x direction
-      // Left swipe: negative x direction
-      direction = (delta.dx > 0) ? SwipeDirection.right : SwipeDirection.left;
+      final direction =
+          (delta.dx > 0) ? SwipeDirection.right : SwipeDirection.left;
 
       _emitSwipeEvent(
         direction: direction,

@@ -26,79 +26,12 @@ class BehaviorSession {
       DateTime.now().millisecondsSinceEpoch - startTimestamp;
 }
 
-/// Motion state information.
-class MotionState {
-  final List<String>
-      state; // Array of states for each window, e.g., ["walking", "sitting", "standing", "sitting"]
-  final String majorState; // Most common state, e.g., "sitting"
-  final double majorStatePct; // Percentage of major state, e.g., 0.5
-  final String mlModel; // e.g., "motion_state_svc_classifier_v0.1"
-  final double confidence; // 0.0 to 1.0
-
-  MotionState({
-    required this.state,
-    required this.majorState,
-    required this.majorStatePct,
-    required this.mlModel,
-    required this.confidence,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'state': state,
-        'major_state': majorState,
-        'major_state_pct': majorStatePct,
-        'ml_model': mlModel,
-        'confidence': confidence,
-      };
-
-  factory MotionState.fromJson(Map<String, dynamic> json) {
-    return MotionState(
-      state:
-          json['state'] != null ? List<String>.from(json['state'] as List) : [],
-      majorState: json['major_state'] as String? ?? 'unknown',
-      majorStatePct: (json['major_state_pct'] as num?)?.toDouble() ?? 0.0,
-      mlModel:
-          json['ml_model'] as String? ?? 'motion_state_svc_classifier_v0.1',
-      confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
-    );
-  }
-}
-
-/// Raw motion data point (accelerometer and gyroscope arrays per timestamp).
-class MotionDataPoint {
-  /// ISO 8601 timestamp for this data point (5-second window)
-  final String timestamp;
-
-  /// ML features extracted from raw sensor data (561 features)
-  /// Feature names match the format from features.txt (e.g., "tBodyAcc-mean()-X")
-  final Map<String, double> features;
-
-  MotionDataPoint({
-    required this.timestamp,
-    required this.features,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'timestamp': timestamp,
-        'features': features,
-      };
-
-  factory MotionDataPoint.fromJson(Map<String, dynamic> json) {
-    return MotionDataPoint(
-      timestamp: json['timestamp'] as String,
-      features: json['features'] != null
-          ? Map<String, double>.from(
-              (json['features'] as Map).map(
-                (key, value) => MapEntry(
-                  key.toString(),
-                  (value as num).toDouble(),
-                ),
-              ),
-            )
-          : {},
-    );
-  }
-}
+// Motion state and motion-data point models were removed in
+// RFC-MOTION-STATE-0001 Phase 4. Motion classification now happens in the
+// engine runtime (`synheart-state-runtime::heads::motion_state`); consumers
+// read the result from the runtime's HSI snapshot via
+// `synheart-core-flutter`'s `BehaviorModule.motionStateUpdates` rather than
+// from the per-session summary.
 
 /// Device context information.
 class DeviceContext {
@@ -573,9 +506,6 @@ class BehaviorSessionSummary {
   /// Session spacing in milliseconds (time since last app use).
   final int sessionSpacing;
 
-  /// Motion state information.
-  final MotionState? motionState;
-
   /// Device context information.
   final DeviceContext deviceContext;
 
@@ -594,9 +524,6 @@ class BehaviorSessionSummary {
   /// Typing session summary.
   final TypingSessionSummary? typingSessionSummary;
 
-  /// Raw motion data (accelerometer and gyroscope arrays per timestamp).
-  final List<MotionDataPoint>? motionData;
-
   /// Performance information.
   final Map<String, dynamic>? performanceInfo;
 
@@ -609,14 +536,12 @@ class BehaviorSessionSummary {
     this.appId,
     this.appName,
     required this.sessionSpacing,
-    this.motionState,
     required this.deviceContext,
     required this.activitySummary,
     required this.behavioralMetrics,
     required this.notificationSummary,
     required this.systemState,
     this.typingSessionSummary,
-    this.motionData,
     this.performanceInfo,
   });
 
@@ -630,7 +555,6 @@ class BehaviorSessionSummary {
         if (appId != null) 'app_id': appId,
         if (appName != null) 'app_name': appName,
         'session_spacing': sessionSpacing,
-        if (motionState != null) 'motion_state': motionState!.toJson(),
         'device_context': deviceContext.toJson(),
         'activity_summary': activitySummary.toJson(),
         'behavioral_metrics': behavioralMetrics.toJson(),
@@ -638,8 +562,6 @@ class BehaviorSessionSummary {
         'system_state': systemState.toJson(),
         if (typingSessionSummary != null)
           'typing_session_summary': typingSessionSummary!.toJson(),
-        if (motionData != null)
-          'motion_data': motionData!.map((point) => point.toJson()).toList(),
         if (performanceInfo != null) 'performance_info': performanceInfo,
       };
 
@@ -661,10 +583,6 @@ class BehaviorSessionSummary {
       appId: json['app_id'] as String?,
       appName: json['app_name'] as String?,
       sessionSpacing: (json['session_spacing'] as num?)?.toInt() ?? 0,
-      motionState: json['motion_state'] != null
-          ? MotionState.fromJson(
-              Map<String, dynamic>.from(json['motion_state'] as Map))
-          : null,
       deviceContext: DeviceContext.fromJson(
           Map<String, dynamic>.from(json['device_context'] as Map? ?? {})),
       activitySummary: ActivitySummary.fromJson(
@@ -679,12 +597,6 @@ class BehaviorSessionSummary {
       typingSessionSummary: json['typing_session_summary'] != null
           ? TypingSessionSummary.fromJson(
               Map<String, dynamic>.from(json['typing_session_summary'] as Map))
-          : null,
-      motionData: json['motion_data'] != null
-          ? (json['motion_data'] as List<dynamic>)
-              .map((e) =>
-                  MotionDataPoint.fromJson(Map<String, dynamic>.from(e as Map)))
-              .toList()
           : null,
       performanceInfo: json['performance_info'] != null
           ? Map<String, dynamic>.from(json['performance_info'] as Map)

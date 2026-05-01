@@ -28,8 +28,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
     private var motionSampleBatchHandler: ((List<Map<String, Any>>) -> Unit)? = null
     private var currentSessionId: String? = null
     private val sessionData = ConcurrentHashMap<String, SessionData>()
-    private val sessionMotionData =
-            ConcurrentHashMap<String, List<MotionSignalCollector.MotionDataPoint>>()
     private val statsCollector = StatsCollector()
 
     // Signal collectors
@@ -142,7 +140,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val previousSessionId = currentSessionId
         if (previousSessionId != null && previousSessionId != sessionId) {
             sessionData.remove(previousSessionId)
-            sessionMotionData.remove(previousSessionId)
         }
 
         currentSessionId = sessionId
@@ -391,8 +388,10 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         // Compute behavioral metrics from events
         val behavioralMetrics = computeBehavioralMetricsFromEvents(data, duration, notificationCount, callCount)
 
-        // Collect motion data if enabled
-        val motionData = motionSignalCollector.stopSession()
+        // Stop motion collection. Raw accel batches are pushed to the runtime
+        // as they're collected (Phase 3); session summary no longer carries
+        // motion-state or motion-feature payloads (RFC-MOTION-STATE-0001 §6.3).
+        motionSignalCollector.stopSession()
 
         // Build comprehensive summary
         val summaryBase =
@@ -448,18 +447,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val typingSummary = behavioralMetrics["typing_session_summary"] as? Map<String, Any>
         if (typingSummary != null && typingSummary.isNotEmpty()) {
             summary = summary + mapOf("typing_session_summary" to typingSummary)
-        }
-
-        // Add motion data if available
-        if (motionData.isNotEmpty()) {
-            val motionDataJson =
-                    motionData.map { dataPoint ->
-                        mapOf("timestamp" to dataPoint.timestamp, "features" to dataPoint.features)
-                    }
-            summary = summary + mapOf("motion_data" to motionDataJson)
-
-            // Store motion data for on-demand queries (will be cleared when next session starts)
-            sessionMotionData[sessionId] = motionData
         }
 
         // Don't remove sessionData here - it will be cleared when the next session starts
@@ -734,31 +721,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                         "typing_metrics" to emptyList<Map<String, Any>>()
                 )
 
-        // Get motion data for the time range
-        val allMotionData: List<MotionSignalCollector.MotionDataPoint> =
-                if (sessionDataEntry != null) {
-                    // Session is still active - get current motion data from collector
-                    val currentMotionData: List<MotionSignalCollector.MotionDataPoint> =
-                            motionSignalCollector.getCurrentMotionData()
-                    currentMotionData.filter { dataPoint: MotionSignalCollector.MotionDataPoint ->
-                        try {
-                            val dataPointTime = Instant.parse(dataPoint.timestamp).toEpochMilli()
-                            dataPointTime >= startTimestampMs && dataPointTime <= endTimestampMs
-                        } catch (e: Exception) {
-                            false // Skip invalid timestamps
-                        }
-                    }
-                } else {
-                    // Session has ended - motion data should be retrieved from stored data
-                    // For now, return empty list (motion data persistence can be added later)
-                    emptyList<MotionSignalCollector.MotionDataPoint>()
-                }
-
-        // Convert motion data to map format
-        val motionDataList: List<Map<String, Any>> =
-                allMotionData.map { dataPoint: MotionSignalCollector.MotionDataPoint ->
-                    mapOf("timestamp" to dataPoint.timestamp, "features" to dataPoint.features)
-                }
+        // Motion-state classification moved to the engine runtime
+        // (RFC-MOTION-STATE-0001 §6.3); per-window motion data is no longer
+        // surfaced through this SDK's `calculateMetricsForTimeRange` response.
 
         // Get current device context and system state
         val currentScreenBrightness = getScreenBrightness()
@@ -807,7 +772,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 "clipboard_cut_count" to clipboardCutCount
                         ),
                 "typing_session_summary" to typingSessionSummary,
-                "motion_data" to motionDataList
         )
     }
 

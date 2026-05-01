@@ -13,7 +13,6 @@ public class BehaviorSDK {
     private var motionSampleBatchHandler: (([[String: Any]]) -> Void)?
     private var currentSessionId: String?
     private var sessionData: [String: SessionData] = [:]
-    private var sessionMotionData: [String: [MotionSignalCollector.MotionDataPoint]] = [:]
     private let statsCollector = StatsCollector()
 
     // Signal collectors
@@ -132,7 +131,6 @@ public class BehaviorSDK {
         // calculateMetricsForTimeRange to access it for ended sessions
         if let previousSessionId = currentSessionId, previousSessionId != sessionId {
             sessionData.removeValue(forKey: previousSessionId)
-            sessionMotionData.removeValue(forKey: previousSessionId)
         }
         
         print("BehaviorSDK.startSession: Called with sessionId: \(sessionId)")
@@ -346,10 +344,12 @@ public class BehaviorSDK {
 
         // Compute behavioral metrics from events
         let behavioralMetrics = computeBehavioralMetricsFromEvents(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
-        
-        // Collect motion data if enabled
-        let motionData = motionSignalCollector.stopSession()
-        
+
+        // Stop motion collection. Raw accel batches are pushed to the runtime
+        // as they're collected (Phase 3); session summary no longer carries
+        // motion-state or motion-feature payloads (RFC-MOTION-STATE-0001 §6.3).
+        motionSignalCollector.stopSession()
+
         // Build comprehensive summary
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -397,20 +397,6 @@ public class BehaviorSDK {
         // Add typing session summary if available from behavioral metrics
         if let typingSummary = behavioralMetrics["typing_session_summary"] as? [String: Any], !typingSummary.isEmpty {
             summary["typing_session_summary"] = typingSummary
-        }
-        
-        // Add motion data if available
-        if !motionData.isEmpty {
-            let motionDataJson = motionData.map { dataPoint -> [String: Any] in
-                return [
-                    "timestamp": dataPoint.timestamp,
-                    "features": dataPoint.features
-                ]
-            }
-            summary["motion_data"] = motionDataJson
-            
-            // Store motion data for on-demand queries (will be cleared when next session starts)
-            sessionMotionData[sessionId] = motionData
         }
         
         // Don't remove sessionData here - it will be cleared when the next session starts
@@ -700,36 +686,10 @@ public class BehaviorSDK {
             "typing_metrics": [] as [[String: Any]]
         ]
 
-        // Get motion data for the time range
-        let allMotionData: [MotionSignalCollector.MotionDataPoint]
-        if let _ = sessionDataEntry {
-            // Session is still active - get current motion data from collector
-            let currentMotionData = motionSignalCollector.getCurrentMotionData()
-            allMotionData = currentMotionData.filter { dataPoint in
-                do {
-                    let formatter = ISO8601DateFormatter()
-                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                    guard let dataPointDate = formatter.date(from: dataPoint.timestamp) else { return false }
-                    let dataPointTimeMs = Int64(dataPointDate.timeIntervalSince1970 * 1000)
-                    return dataPointTimeMs >= startTimestampMs && dataPointTimeMs <= endTimestampMs
-                } catch {
-                    return false // Skip invalid timestamps
-                }
-            }
-        } else {
-            // Session has ended - motion data should be retrieved from stored data
-            // For now, return empty list (motion data persistence can be added later)
-            allMotionData = []
-        }
-        
-        // Convert motion data to map format
-        let motionDataList = allMotionData.map { dataPoint in
-            [
-                "timestamp": dataPoint.timestamp,
-                "features": dataPoint.features
-            ] as [String: Any]
-        }
-        
+        // Motion-state classification moved to the engine runtime
+        // (RFC-MOTION-STATE-0001 §6.3); per-window motion data is no longer
+        // surfaced through this SDK's `calculateMetricsForTimeRange` response.
+
         // Get current device context and system state
         let currentScreenBrightness = getScreenBrightness()
         let currentOrientation = UIDevice.current.orientation
@@ -773,7 +733,6 @@ public class BehaviorSDK {
                 "clipboard_cut_count": clipboardCutCount
             ] as [String: Any],
             "typing_session_summary": typingSessionSummary,
-            "motion_data": motionDataList
         ] as [String: Any]
     }
 

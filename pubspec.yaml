@@ -19,7 +19,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_onnxruntime: ^1.5.2
 
 dev_dependencies:
   flutter_test:
@@ -34,8 +33,4 @@ flutter:
         pluginClass: SynheartBehaviorPlugin
       ios:
         pluginClass: SynheartBehaviorPlugin
-  assets:
-    - assets/models/linear_svc_model.onnx
-    - assets/models/label_mapping.json
-    - features.txt
 
