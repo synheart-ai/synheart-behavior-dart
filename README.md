@@ -1,5 +1,10 @@
 # Synheart Behavior
 
+
+> **Source-available.** This repository is open for reading, auditing, and
+> filing issues. We do **not** accept pull requests — see
+> [CONTRIBUTING.md](CONTRIBUTING.md) for the rationale and how to contribute
+> via issues. Security reports go through [SECURITY.md](SECURITY.md).
 > On-device behavioral signal inference from digital interactions for Flutter applications
 
 [![CI](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml)

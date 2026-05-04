@@ -1,58 +1,61 @@
-# Contributing to Synheart Behavioral SDK
+# Contributing
 
-Thank you for your interest in contributing to the Synheart Behavioral SDK!
+Thank you for taking the time to look at Synheart Behavior (Flutter). This document explains
+how this repository accepts contributions.
 
-## Development Setup
+## TL;DR
 
-1. Clone the repository:
-```bash
-git clone https://github.com/synheart-ai/synheart-behavior-dart.git
-cd synheart-behavior-dart
-```
+- **Issues are welcome.** Bug reports, feature requests, and questions help us
+  prioritize and improve the SDK.
+- **Pull requests are not accepted at this time.** Any externally submitted PR
+  will be closed without review.
+- **Security reports are not public.** See [SECURITY.md](SECURITY.md) for the
+  private disclosure path.
 
-2. Install dependencies:
-```bash
-flutter pub get
-```
+## Why we do not accept pull requests
 
-3. Run the example app:
-```bash
-cd example
-flutter run
-```
+This SDK is developed in an internal monorepo and mirrored to GitHub for
+transparency. The public repository is source-available so anyone can read,
+audit, and learn from the code that runs on their device — but the project is
+not yet ready to absorb external code contributions.
 
-## Code Style
+Specifically:
 
-- Follow the [Effective Dart](https://dart.dev/guides/language/effective-dart) style guide
-- Run `flutter analyze` before committing
-- Ensure all tests pass
+- **Spec stability.** The Synheart HSI is still evolving against internal RFCs.
+  Accepting external changes before the spec settles would create churn for
+  everyone, including contributors.
+- **Review capacity.** A small team maintains this code. We would rather
+  invest review time in stabilizing the HSI than in bouncing PRs back for
+  rework.
+- **Provenance.** We avoid contributor licensing overhead (CLAs, copyright
+  assignment) by sourcing all code internally.
 
-## Testing
+This is a temporary policy and may relax once the HSI is stable. Until then,
+issues are the supported way to influence the direction of the SDK.
 
-- Write unit tests for new features
-- Test on both iOS and Android platforms
-- Ensure privacy requirements are met (no PII collection)
+## Privacy guarantees
 
-## Pull Request Process
+Even when filing bugs or feature requests, do not share user content (text, keystroke content, screen content, app content, PII). This SDK is designed to capture only timing/interaction metadata; reports that include user content will be redacted or closed.
 
-1. Create a feature branch from `main`
-2. Make your changes
-3. Add tests if applicable
-4. Update documentation
-5. Submit a pull request with a clear description
+## Filing an issue
 
-## Privacy Requirements
+Before opening an issue, please:
 
-**Critical**: This SDK must never collect:
-- Text content
-- Keystroke content
-- Screen content
-- PII (Personally Identifiable Information)
-- App content
+1. Search [existing issues](https://github.com/synheart-ai/synheart-behavior-flutter/issues) to avoid
+   duplicates.
+2. Use the appropriate issue template (bug report or feature request).
+3. Include enough detail for us to reproduce or evaluate the request — version,
+   platform, minimal reproduction code, and what you expected vs. observed.
 
-Only timing-based signals are allowed.
+Issues that are well scoped and reproducible get triaged faster.
 
-## Questions?
+## What about typo / docs fixes?
 
-Feel free to open an issue or contact the maintainers.
+Even small documentation fixes are best filed as an issue. Quote the section,
+suggest the change, and we will roll it into the next internal sync. This
+keeps a single contribution path and avoids ambiguity about what is in scope.
 
+## Code of conduct
+
+Be respectful in issues and discussions. We reserve the right to close issues
+that are abusive, off-topic, or used to spam the tracker.
