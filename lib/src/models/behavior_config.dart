@@ -15,7 +15,7 @@ class BehaviorConfig {
   /// When `true`, the native motion collector batches its sample buffer and
   /// pushes it to Dart once per second so a downstream runtime
   /// (`synheart-core-flutter` → `synheart-core-runtime`) can derive features
-  /// and run motion-state classification per RFC-MOTION-STATE-0001.
+  /// and run motion-state classification per the motion-state spec.
   ///
   /// Independent of [enableMotionLite]: the raw stream is for the runtime;
   /// `enableMotionLite` drives the SDK's own (legacy) on-device motion

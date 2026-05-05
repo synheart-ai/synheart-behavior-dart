@@ -2,8 +2,8 @@ import Foundation
 import CoreMotion
 
 /// Collects raw 50 Hz accelerometer samples and forwards them to the runtime
-/// in 1-second batches for `MotionStateHead` (RFC-MOTION-STATE-0001) to
-/// classify. The legacy 561-feature ML path was removed in Phase 4.
+/// in 1-second batches for `MotionStateHead` for the on-device motion classifier to
+/// classify. The legacy on-device feature-extraction ML path has been removed.
 ///
 /// Privacy: only raw motion timing/values, no location or content.
 class MotionSignalCollector {
@@ -18,7 +18,7 @@ class MotionSignalCollector {
     private let sampleQueue = DispatchQueue(label: "ai.synheart.motion.samples", attributes: .concurrent)
     private var accelerometerSamples: [(timestamp: Double, x: Double, y: Double, z: Double)] = []
 
-    // Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3).
+    // Raw-sample batch emission (future work).
     // Forwards a 1-second slice of the accel buffer to the runtime so
     // `session-runtime` can derive features and `MotionStateHead` can run.
     private var rawSampleBatchHandler: (([[String: Any]]) -> Void)?
@@ -131,7 +131,7 @@ class MotionSignalCollector {
         }
     }
 
-    // MARK: - Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3)
+    // MARK: - Raw-sample batch emission (future work)
 
     private func updateRawBatchTimer() {
         let shouldEmit = config.emitRawMotionSamples

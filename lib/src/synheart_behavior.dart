@@ -105,7 +105,7 @@ class SynheartBehavior {
       await _channel.invokeMethod('initialize', effectiveConfig.toJson());
 
       // Motion-state classification was previously inferred locally via an
-      // ONNX SVC. As of RFC-MOTION-STATE-0001, that path is removed — raw
+      // ONNX SVC. As of the current motion-state implementation, that path is removed — raw
       // accel samples are forwarded to the engine runtime via
       // `BehaviorConfig.emitRawMotionSamples`, and `MotionStateHead` in
       // `synheart-state-runtime` does the classification.
@@ -137,7 +137,7 @@ class SynheartBehavior {
   /// Consumers — typically `synheart-core-flutter`'s `BehaviorModule` —
   /// forward these via the runtime's `push_accel` FFI so the engine's
   /// `session-runtime` can derive features and `MotionStateHead` (per
-  /// RFC-MOTION-STATE-0001) can classify posture/motion.
+  /// the on-device motion classifier) can classify posture/motion.
   ///
   /// Phase 3 wiring: the behavior SDK is the *collector*, not the inferrer.
   /// Native emission is implemented behind the
@@ -347,7 +347,7 @@ class SynheartBehavior {
       // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
       // Motion-state classification moved to the engine runtime per
-      // RFC-MOTION-STATE-0001. The session summary no longer carries
+      // the motion-state spec. The session summary no longer carries
       // `motion_state` / `motion_data`; consumers read motion state from
       // the runtime's HSI snapshot via `synheart-core-flutter`'s
       // `BehaviorModule.motionStateUpdates`.
@@ -595,7 +595,7 @@ class SynheartBehavior {
       final metrics = Map<String, dynamic>.from(result as Map);
 
       // Motion-state classification moved to the engine runtime per
-      // RFC-MOTION-STATE-0001. The behavior SDK no longer surfaces
+      // the motion-state spec. The behavior SDK no longer surfaces
       // `motion_state` / `motion_data` on this map; consumers read motion
       // state from the runtime's HSI snapshot.
 

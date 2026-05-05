@@ -390,7 +390,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
 
         // Stop motion collection. Raw accel batches are pushed to the runtime
         // as they're collected (Phase 3); session summary no longer carries
-        // motion-state or motion-feature payloads (RFC-MOTION-STATE-0001 §6.3).
+        // motion-state or motion-feature payloads (per the motion-state spec).
         motionSignalCollector.stopSession()
 
         // Build comprehensive summary
@@ -722,7 +722,7 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                 )
 
         // Motion-state classification moved to the engine runtime
-        // (RFC-MOTION-STATE-0001 §6.3); per-window motion data is no longer
+        // (per the motion-state spec); per-window motion data is no longer
         // surfaced through this SDK's `calculateMetricsForTimeRange` response.
 
         // Get current device context and system state
@@ -940,7 +940,7 @@ data class BehaviorConfig(
         val enableMotionLite: Boolean = false,
         /**
          * Emit raw 50 Hz accel batches over MethodChannel for the runtime to
-         * consume (RFC-MOTION-STATE-0001 Phase 3). Independent of
+         * consume (future work). Independent of
          * [enableMotionLite].
          */
         val emitRawMotionSamples: Boolean = false,

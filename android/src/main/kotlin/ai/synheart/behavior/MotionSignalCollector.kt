@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Collects raw 50 Hz accelerometer samples and forwards them to the runtime
- * in 1-second batches for `MotionStateHead` (RFC-MOTION-STATE-0001) to
- * classify. The legacy 561-feature ML path was removed in Phase 4.
+ * in 1-second batches for `MotionStateHead` for the on-device motion classifier to
+ * classify. The legacy on-device feature-extraction ML path has been removed.
  *
  * Privacy: only raw motion timing/values, no location or content.
  */
@@ -27,7 +27,7 @@ class MotionSignalCollector(private val context: Context, private var config: Be
     private val accelerometerSamples =
             ConcurrentLinkedQueue<Pair<Long, FloatArray>>() // timestamp, [x, y, z]
 
-    // Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3).
+    // Raw-sample batch emission (future work).
     private var rawSampleBatchHandler: ((List<Map<String, Any>>) -> Unit)? = null
     private var lastRawBatchEndMs: Long = 0
     private val rawBatchIntervalMs: Long = 1000L
@@ -132,7 +132,7 @@ class MotionSignalCollector(private val context: Context, private var config: Be
         accelerometerSamples.clear()
     }
 
-    // MARK: - Raw-sample batch emission (RFC-MOTION-STATE-0001 Phase 3)
+    // MARK: - Raw-sample batch emission (future work)
 
     private fun updateRawBatchTimer() {
         val shouldEmit = config.emitRawMotionSamples &&

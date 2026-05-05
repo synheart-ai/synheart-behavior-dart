@@ -347,7 +347,7 @@ public class BehaviorSDK {
 
         // Stop motion collection. Raw accel batches are pushed to the runtime
         // as they're collected (Phase 3); session summary no longer carries
-        // motion-state or motion-feature payloads (RFC-MOTION-STATE-0001 §6.3).
+        // motion-state or motion-feature payloads (per the motion-state spec).
         motionSignalCollector.stopSession()
 
         // Build comprehensive summary
@@ -687,7 +687,7 @@ public class BehaviorSDK {
         ]
 
         // Motion-state classification moved to the engine runtime
-        // (RFC-MOTION-STATE-0001 §6.3); per-window motion data is no longer
+        // (per the motion-state spec); per-window motion data is no longer
         // surfaced through this SDK's `calculateMetricsForTimeRange` response.
 
         // Get current device context and system state
@@ -850,7 +850,7 @@ public struct BehaviorConfig {
     public let enableAttentionSignals: Bool
     public let enableMotionLite: Bool
     /// Emit raw 50 Hz accel batches over MethodChannel for the runtime to consume
-    /// (RFC-MOTION-STATE-0001 Phase 3). Independent of `enableMotionLite`.
+    /// (future work). Independent of `enableMotionLite`.
     public let emitRawMotionSamples: Bool
     public let sessionIdPrefix: String?
     public let eventBatchSize: Int

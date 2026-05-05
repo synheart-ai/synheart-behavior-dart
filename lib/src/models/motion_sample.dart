@@ -2,7 +2,7 @@
 ///
 /// Emitted by [SynheartBehavior.onMotionSample] in batches (typically ~50
 /// samples per 1-second window at 50 Hz) so the upstream runtime can run its
-/// own feature extraction and `MotionStateHead` per RFC-MOTION-STATE-0001.
+/// own feature extraction and `MotionStateHead` per the motion-state spec.
 ///
 /// The behavior SDK does not interpret these samples — they are passed through
 /// for the runtime to consume.
