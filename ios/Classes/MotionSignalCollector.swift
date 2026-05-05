@@ -3,7 +3,7 @@ import CoreMotion
 
 /// Collects raw 50 Hz accelerometer samples and forwards them to the runtime
 /// in 1-second batches for `MotionStateHead` for the on-device motion classifier to
-/// classify. The legacy on-device feature-extraction ML path has been removed.
+/// classify. The collector forwards raw 50 Hz accel batches; downstream consumers run motion classification.
 ///
 /// Privacy: only raw motion timing/values, no location or content.
 class MotionSignalCollector {

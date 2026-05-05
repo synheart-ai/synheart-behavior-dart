@@ -1,6 +1,4 @@
 import 'dart:async';
-// dart:io was only used for Platform in _generateDeviceId (commented out)
-// import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -100,11 +98,9 @@ class SynheartBehavior {
       // Initialize native SDK
       await _channel.invokeMethod('initialize', effectiveConfig.toJson());
 
-      // Motion-state classification was previously inferred locally via an
-      // ONNX SVC. As of the current motion-state implementation, that path is removed — raw
-      // accel samples are forwarded to the engine runtime via
-      // `BehaviorConfig.emitRawMotionSamples`, and `MotionStateHead` in
-      // the Synheart Runtime does the classification.
+      // Motion-state classification runs in the Synheart Runtime's
+      // `MotionStateHead`. Raw 50 Hz accel samples are forwarded via
+      // `BehaviorConfig.emitRawMotionSamples`.
 
       // Window features - commented out (not needed for real-time event tracking)
       // behavior._startWindowUpdates();

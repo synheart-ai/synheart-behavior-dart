@@ -292,7 +292,7 @@ class BehaviorEvent {
         },
       };
 
-  /// Convert to legacy format for backward compatibility during migration.
+  /// Convert to the legacy event-format shape used by older host integrations.
   Map<String, dynamic> toLegacyJson() => {
         'session_id': sessionId,
         'timestamp': DateTime.parse(timestamp).millisecondsSinceEpoch,

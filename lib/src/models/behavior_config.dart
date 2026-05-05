@@ -18,7 +18,7 @@ class BehaviorConfig {
   /// and run motion-state classification per the motion-state spec.
   ///
   /// Independent of [enableMotionLite]: the raw stream is for the runtime;
-  /// `enableMotionLite` drives the SDK's own (legacy) on-device motion
+  /// `enableMotionLite` drives the SDK's own on-device motion
   /// classifier. Set this `true` *and* `enableMotionLite` `false` to ship
   /// only the collector-side path.
   final bool emitRawMotionSamples;
