@@ -29,7 +29,7 @@ These behavioral signals power downstream systems such as:
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
 - **On-Demand Metrics**: Calculate behavioral metrics for custom time ranges within sessions
-- **Motion State Prediction (optional)**: Activity recognition (LAYING, MOVING, SITTING, STANDING) using on-device ML inference
+- **Raw motion forwarding (optional)**: 50 Hz accelerometer batches surfaced via `onMotionSample` for downstream consumers (e.g. the Synheart Runtime's motion classifier). The SDK is the *collector*, not the classifier.
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android
