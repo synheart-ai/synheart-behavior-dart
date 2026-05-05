@@ -703,9 +703,7 @@ class _MyAppState extends State<MyApp> {
 If you encounter issues:
 
 1. Check the [README.md](../README.md) for basic setup and API reference
-2. Check [PRIVACY_AUDIT.md](../PRIVACY_AUDIT.md) for privacy questions
-3. See [PERFORMANCE_PROFILING.md](../PERFORMANCE_PROFILING.md) for performance issues
-4. Review [PERMISSIONS_DATA_MATRIX.md](../PERMISSIONS_DATA_MATRIX.md) for permission requirements
-5. File an issue on GitHub
+2. Read the [privacy audit](https://github.com/synheart-ai/docs/blob/main/privacy/behavior.md) for privacy questions
+3. File an issue on [GitHub](https://github.com/synheart-ai/synheart-behavior-flutter/issues)
 
 **Happy Testing! 🎉**

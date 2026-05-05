@@ -756,7 +756,8 @@ Israel Goytom
 - 📦 [pub.dev package](https://pub.dev/packages/synheart_behavior)
 - 🔗 [GitHub repository](https://github.com/synheart-ai/synheart-behavior-flutter)
 - 🔗 [Parent specification repository](https://github.com/synheart-ai/synheart-behavior)
-- 📖 [Example App Guide](EXAMPLE_APP_GUIDE.md)
+- 📖 [Example App Guide](example/GUIDE.md)
+- 🔒 [Privacy audit](https://github.com/synheart-ai/docs/blob/main/privacy/behavior.md)
 
 ## 🔗 Related Projects
 
