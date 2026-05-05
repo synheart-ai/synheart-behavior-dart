@@ -522,11 +522,19 @@ The Synheart SDK is designed around privacy-by-design and data minimization prin
 
 ✅ **No third-party data sharing**: The SDK does not share raw or derived behavioral data with advertisers, analytics providers, or external third parties.
 
-### Regulatory Alignment
+### Regulatory alignment
 
-✅ **GDPR / CCPA aligned**: The SDK adheres to the principles of data minimization, purpose limitation, user consent, and transparency.
+The SDK is designed around the principles of data minimization,
+purpose limitation, user consent, and transparency. See the
+[privacy audit](https://docs.synheart.ai/privacy/behavior) for the
+detailed static-review notes. This is a self-assessment, not a
+third-party certification — legal sufficiency for your specific
+deployment depends on how you wire consent in your host app.
 
-✅ **App Tracking Transparency (ATT) not required**: The SDK does not track users across apps, services, or companies and does not perform cross-app or cross-device identification.
+The SDK does not track users across apps, does not collect device
+identifiers, and does not share data with ad-network brokers. Whether
+your host app needs to present an ATT prompt depends on the rest of
+the app's behavior, not on this SDK alone.
 
 ## 📱 Platform Support
 
@@ -536,13 +544,14 @@ The Synheart SDK is designed around privacy-by-design and data minimization prin
 
 ## ⚡ Performance
 
-The SDK is designed for continuous background operation with minimal resource impact:
-
-- **CPU**: ≤ 1% average
-- **Memory**: ≤ 10 MB peak
-- **Battery**: < 0.3% per hour
-- **Event processing**: < 500 μs per event
-- **UI blocking**: None (all processing on background threads)
+The SDK is designed for continuous background operation with minimal
+resource impact: events are processed on background threads, and there
+is no persistent storage layer to flush. Specific CPU / memory /
+battery numbers are deployment-dependent — earlier docs published
+fixed targets, but those were design goals, not measured runtime
+numbers. Profile your integration with the platform's standard tools
+(Instruments, Android Studio Profiler, Flutter DevTools) for ground
+truth on your device class.
 
 ## 🏗️ Architecture
 
