@@ -7,7 +7,7 @@
 > via issues. Security reports go through [SECURITY.md](SECURITY.md).
 > On-device behavioral signal inference from digital interactions for Flutter applications
 
-[![CI](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-behavior-dart/actions/workflows/ci.yml)
+[![CI](https://github.com/synheart-ai/synheart-behavior-flutter/actions/workflows/ci.yml/badge.svg)](https://github.com/synheart-ai/synheart-behavior-flutter/actions/workflows/ci.yml)
 [![pub.dev](https://img.shields.io/pub/v/synheart_behavior.svg)](https://pub.dev/packages/synheart_behavior)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-iOS%20%7C%20Android-lightgrey.svg)](https://pub.dev/packages/synheart_behavior)
@@ -665,7 +665,7 @@ flutter pub get
 
 ## 🧪 Example App
 
-A complete example app demonstrating all SDK features is available in the [`example/`](https://github.com/synheart-ai/synheart-behavior-dart/tree/main/example) directory.
+A complete example app demonstrating all SDK features is available in the [`example/`](https://github.com/synheart-ai/synheart-behavior-flutter/tree/main/example) directory.
 
 To run the example:
 
@@ -754,7 +754,7 @@ Israel Goytom
 ## 🔗 Links
 
 - 📦 [pub.dev package](https://pub.dev/packages/synheart_behavior)
-- 🔗 [GitHub repository](https://github.com/synheart-ai/synheart-behavior-dart)
+- 🔗 [GitHub repository](https://github.com/synheart-ai/synheart-behavior-flutter)
 - 🔗 [Parent specification repository](https://github.com/synheart-ai/synheart-behavior)
 - 📖 [Example App Guide](EXAMPLE_APP_GUIDE.md)
 
