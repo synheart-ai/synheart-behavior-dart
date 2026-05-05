@@ -768,8 +768,12 @@ Israel Goytom
 | [synheart-behavior-swift](https://github.com/synheart-ai/synheart-behavior-swift) | iOS/Swift SDK |
 | [synheart-behavior-chrome](https://github.com/synheart-ai/synheart-behavior-chrome) | Chrome extension |
 
-## ⚖️ Patent Pending Notice
+## Patent Pending Notice
 
 This project is provided under an open-source license. Certain underlying systems, methods, and architectures described or implemented herein may be covered by one or more pending patent applications.
 
 Nothing in this repository grants any license, express or implied, to any patents or patent applications, except as provided by the applicable open-source license.
+
+## Not a Medical Device
+
+This SDK is intended for wellness and research use only. It is not a medical device, is not intended to diagnose, treat, cure, or prevent any disease or condition, and has not been evaluated by the FDA or any other regulatory body.
