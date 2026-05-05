@@ -28,7 +28,7 @@ class BehaviorSession {
 
 // Motion state and motion-data point models were removed in
 // the current motion-state implementation. Motion classification happens in the
-// engine runtime (`synheart-state-runtime::heads::motion_state`); consumers
+// engine runtime (the Synheart Runtime motion-state head); consumers
 // read the result from the runtime's HSI snapshot via
 // `synheart-core-flutter`'s `BehaviorModule.motionStateUpdates` rather than
 // from the per-session summary.
