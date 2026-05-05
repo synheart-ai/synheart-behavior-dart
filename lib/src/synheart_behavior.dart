@@ -108,7 +108,7 @@ class SynheartBehavior {
       // ONNX SVC. As of the current motion-state implementation, that path is removed — raw
       // accel samples are forwarded to the engine runtime via
       // `BehaviorConfig.emitRawMotionSamples`, and `MotionStateHead` in
-      // `synheart-state-runtime` does the classification.
+      // the Synheart Runtime does the classification.
 
       // Window features - commented out (not needed for real-time event tracking)
       // behavior._startWindowUpdates();
