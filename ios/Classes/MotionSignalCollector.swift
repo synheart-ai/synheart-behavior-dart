@@ -20,7 +20,7 @@ class MotionSignalCollector {
 
     // Raw-sample batch emission (future work).
     // Forwards a 1-second slice of the accel buffer to the runtime so
-    // `session-runtime` can derive features and `MotionStateHead` can run.
+    // The Synheart Runtime can derive features and run motion classification.
     private var rawSampleBatchHandler: (([[String: Any]]) -> Void)?
     private var rawBatchTimer: Timer?
     private var lastRawBatchEndMs: Double = 0
@@ -86,12 +86,12 @@ class MotionSignalCollector {
             return
         }
 
-        // 50 Hz — matches the runtime's session-runtime default.
+        // 50 Hz — matches the Synheart Runtime's default.
         motionManager.accelerometerUpdateInterval = 0.02
 
         // CMAccelerometerData.acceleration is in **G-units** (1.0 = 9.81 m/s²).
         // The runtime expects m/s² (matches Android's Sensor.TYPE_ACCELEROMETER
-        // and what session-runtime's GRAVITY_MAG_MIN/MAX bounds (6.0–14.0)
+        // and what the Synheart Runtime's GRAVITY_MAG_MIN/MAX bounds (6.0–14.0)
         // sanity-check against). Convert here so downstream code stays
         // unit-consistent across platforms.
         let gToMs2: Double = 9.80665

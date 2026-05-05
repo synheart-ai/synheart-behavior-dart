@@ -135,11 +135,10 @@ class SynheartBehavior {
   /// Each event is a list of ~50 samples representing a 1-second window at
   /// 50 Hz (batched on the native side to keep MethodChannel overhead low).
   /// Consumers — typically `synheart-core-flutter`'s `BehaviorModule` —
-  /// forward these via the runtime's `push_accel` FFI so the engine's
-  /// `session-runtime` can derive features and `MotionStateHead` (per
-  /// the on-device motion classifier) can classify posture/motion.
+  /// forward these via the runtime's `push_accel` FFI so the Synheart
+  /// Runtime can derive features and run motion classification.
   ///
-  /// Phase 3 wiring: the behavior SDK is the *collector*, not the inferrer.
+  /// The behavior SDK is the *collector*, not the inferrer.
   /// Native emission is implemented behind the
   /// `BehaviorConfig.emitRawMotionSamples` flag once the platform side
   /// (Swift `MotionSignalCollector`, Kotlin equivalent) lands.

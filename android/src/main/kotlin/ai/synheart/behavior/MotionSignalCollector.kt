@@ -93,7 +93,7 @@ class MotionSignalCollector(private val context: Context, private var config: Be
             return
         }
 
-        // ~50 Hz — matches the runtime's session-runtime default.
+        // ~50 Hz — matches the Synheart Runtime's default.
         val samplingRate = SensorManager.SENSOR_DELAY_NORMAL
         sensorManager?.registerListener(this, accelerometerSensor, samplingRate)
 
