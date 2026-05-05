@@ -53,7 +53,7 @@ flutter pub get
 
 This plugin ships as a standard Flutter plugin with native iOS/Android implementations. No additional native binaries are required for basic behavioral metrics.
 
-If you enable motion-lite inference, the bundled ONNX model will be loaded automatically when `enableMotionLite` is enabled.
+When `enableMotionLite` is on, the SDK forwards raw 50 Hz accelerometer batches via `onMotionSample`; downstream consumers (e.g. the Synheart Core SDK) feed those samples to the on-device motion classifier in the Synheart Runtime.
 
 For optional features (notifications and calls), see the [Permissions](#permissions) section below.
 
@@ -289,7 +289,7 @@ final config = BehaviorConfig(
   // Enable/disable signal types
   enableInputSignals: true,        // Scroll, tap, swipe gestures
   enableAttentionSignals: true,    // App switching, idle gaps, session stability
-  enableMotionLite: true,          // Device motion + activity recognition (LAYING, MOVING, SITTING, STANDING)
+  enableMotionLite: true,          // Forward raw 50 Hz accel batches via onMotionSample
 
   // Session configuration
   sessionIdPrefix: 'MYAPP',        // Custom session ID prefix (default: 'SESS')
@@ -364,12 +364,9 @@ print('App Switches: ${summary.activitySummary.appSwitchCount}');
 print('Notifications: ${summary.notificationSummary.notificationCount}');
 print('Ignore Rate: ${summary.notificationSummary.notificationIgnoreRate}');
 
-// Motion state (if enableMotionLite is true)
-if (summary.motionState != null) {
-  print('Motion State: ${summary.motionState!.majorState}');
-  print('Confidence: ${summary.motionState!.confidence}');
-  print('States: ${summary.motionState!.state}');
-}
+// Motion state classification is no longer surfaced on the
+// session summary; subscribe to onMotionSample to forward raw
+// accelerometer batches to a downstream classifier.
 ```
 
 ### On-Demand Metrics Calculation
@@ -560,10 +557,10 @@ The SDK is designed for continuous background operation with minimal resource im
 │  │                           │                      │  │
 │  │       ┌───────────────────┼───────────────┐      │  │
 │  │       ▼                   ▼               ▼      │  │
-│  │  BehaviorGesture   Platform Channel  MotionState  │  │
-│  │  Detector          (Android/iOS)     Inference    │  │
-│  │  (scroll, tap,     (attention,       (ONNX ML,    │  │
-│  │   swipe, typing)    notif, call)      accel/gyro) │  │
+│  │  BehaviorGesture   Platform Channel  MotionSignal │  │
+│  │  Detector          (Android/iOS)     Collector    │  │
+│  │  (scroll, tap,     (attention,       (raw 50 Hz   │  │
+│  │   swipe, typing)    notif, call)      accel batch) │  │
 │  │       │                   │               │      │  │
 │  │       └─────────┬─────────┘───────────────┘      │  │
 │  │                 ▼                                 │  │
@@ -735,13 +732,16 @@ class SynheartBehavior {
 | `BehaviorStats` | Real-time metrics snapshot (velocity, cadence, tap rate) |
 | `BehaviorGestureDetector` | Flutter widget for gesture tracking |
 | `BehaviorTextField` | Flutter widget for typing event tracking |
-| `MotionStateInference` | ML-based motion classifier (LAYING, MOVING, SITTING, STANDING) |
+| `MotionSample` | One accelerometer sample in a raw 50 Hz batch |
 
 For full API docs, see the [pub.dev package page](https://pub.dev/packages/synheart_behavior).
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+This is a source-available repository. Issues and feature requests are
+welcome; pull requests are not accepted at this time. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the rationale and the supported
+contribution path.
 
 ## 📄 License
 

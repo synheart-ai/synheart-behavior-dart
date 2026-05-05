@@ -10,10 +10,6 @@ import 'models/behavior_session.dart'
     show BehaviorSession, BehaviorSessionSummary;
 import 'models/behavior_stats.dart';
 import 'models/motion_sample.dart';
-// Window features - commented out (not needed for real-time event tracking)
-// import 'models/behavior_window_features.dart';
-// import 'behavior_window_aggregator.dart';
-// import 'behavior_feature_extractor.dart';
 import 'behavior_gesture_detector.dart'
     show BehaviorGestureDetector, BehaviorTextField;
 
