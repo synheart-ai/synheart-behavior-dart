@@ -55,7 +55,7 @@ This plugin ships as a standard Flutter plugin with native iOS/Android implement
 
 When `enableMotionLite` is on, the SDK forwards raw 50 Hz accelerometer batches via `onMotionSample`; downstream consumers (e.g. the Synheart Core SDK) feed those samples to the on-device motion classifier in the Synheart Runtime.
 
-For optional features (notifications and calls), see the [Permissions](#permissions) section below.
+For optional features (notifications and calls), see the [Permissions](#-permissions) section below.
 
 ## 🎯 Quick Start
 
