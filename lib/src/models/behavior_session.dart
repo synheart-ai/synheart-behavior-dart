@@ -26,12 +26,10 @@ class BehaviorSession {
       DateTime.now().millisecondsSinceEpoch - startTimestamp;
 }
 
-// Motion state and motion-data point models were removed in
-// the current motion-state implementation. Motion classification happens in the
-// engine runtime (the Synheart Runtime motion-state head); consumers
-// read the result from the runtime's HSI snapshot via
-// `synheart-core-flutter`'s `BehaviorModule.motionStateUpdates` rather than
-// from the per-session summary.
+// Motion state and motion-data point models are not surfaced on
+// `BehaviorSessionSummary`. Motion classification happens downstream;
+// when this SDK is used through Synheart Core, consumers read the
+// motion-state result from the HSI snapshot.
 
 /// Device context information.
 class DeviceContext {

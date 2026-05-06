@@ -23,21 +23,7 @@ class SynheartBehavior {
       StreamController<BehaviorEvent>.broadcast();
   final StreamController<List<MotionSample>> _motionSampleController =
       StreamController<List<MotionSample>>.broadcast();
-  // Window features - commented out (not needed for real-time event tracking)
-  // final StreamController<BehaviorWindowFeatures> _shortWindowController =
-  //     StreamController<BehaviorWindowFeatures>.broadcast();
-  // final StreamController<BehaviorWindowFeatures> _longWindowController =
-  //     StreamController<BehaviorWindowFeatures>.broadcast();
   final Map<String, BehaviorSession> _activeSessions = {};
-
-  // Window features - commented out (not needed for real-time event tracking)
-  // final WindowAggregator _windowAggregator = WindowAggregator();
-  // final BehaviorFeatureExtractor _featureExtractor = BehaviorFeatureExtractor();
-  // Timer? _windowUpdateTimer;
-
-  // User/device IDs - commented out (not currently used)
-  // String? _userId;
-  // String? _deviceId;
 
   /// Internal method to handle events from Flutter gesture detector.
   ///
@@ -63,8 +49,6 @@ class SynheartBehavior {
     }
 
     _eventController.add(eventWithSessionId);
-    // Window features - commented out (not needed for real-time event tracking)
-    // _windowAggregator.addEvent(eventWithSessionId);
   }
 
   bool _initialized = false;
@@ -98,17 +82,9 @@ class SynheartBehavior {
       // Initialize native SDK
       await _channel.invokeMethod('initialize', effectiveConfig.toJson());
 
-      // Motion-state classification runs in the Synheart Runtime's
-      // `MotionStateHead`. Raw 50 Hz accel samples are forwarded via
-      // `BehaviorConfig.emitRawMotionSamples`.
-
-      // Window features - commented out (not needed for real-time event tracking)
-      // behavior._startWindowUpdates();
-
-      // User/device IDs - commented out (not currently used)
-      // behavior._userId = config?.userId ?? SynheartBehavior._generateUserId();
-      // behavior._deviceId =
-      //     config?.deviceId ?? SynheartBehavior._generateDeviceId();
+      // Motion-state classification is performed downstream when raw
+      // 50 Hz accel samples are forwarded to a consumer (e.g. Synheart
+      // Core) via `BehaviorConfig.emitRawMotionSamples`.
 
       behavior._initialized = true;
       return behavior;
@@ -124,31 +100,15 @@ class SynheartBehavior {
 
   /// Stream of raw accelerometer sample batches.
   ///
-  /// Each event is a list of ~50 samples representing a 1-second window at
-  /// 50 Hz (batched on the native side to keep MethodChannel overhead low).
-  /// Consumers — typically `synheart-core-flutter`'s `BehaviorModule` —
-  /// forward these via the runtime's `push_accel` FFI so the Synheart
-  /// Runtime can derive features and run motion classification.
+  /// Each event is a list of ~50 samples representing a 1-second window
+  /// at 50 Hz (batched on the native side to keep MethodChannel overhead
+  /// low). Consumers — typically the Synheart Core SDK — forward these
+  /// to a downstream feature extractor / motion classifier.
   ///
   /// The behavior SDK is the *collector*, not the inferrer.
-  /// Native emission is implemented behind the
-  /// `BehaviorConfig.emitRawMotionSamples` flag once the platform side
-  /// (Swift `MotionSignalCollector`, Kotlin equivalent) lands.
+  /// Native emission is gated by `BehaviorConfig.emitRawMotionSamples`.
   Stream<List<MotionSample>> get onMotionSample =>
       _motionSampleController.stream;
-
-  // Window features - commented out (not needed for real-time event tracking)
-  // /// Stream of 30-second window features.
-  // ///
-  // /// Emits updated features every 5 seconds for the rolling 30-second window.
-  // Stream<BehaviorWindowFeatures> get onShortWindowFeatures =>
-  //     _shortWindowController.stream;
-  //
-  // /// Stream of 5-minute window features.
-  // ///
-  // /// Emits updated features every 30 seconds for the rolling 5-minute window.
-  // Stream<BehaviorWindowFeatures> get onLongWindowFeatures =>
-  //     _longWindowController.stream;
 
   /// Convert nested Map<dynamic, dynamic> to Map<String, dynamic> recursively
   Map<String, dynamic> _convertMap(Map<dynamic, dynamic> map) {
@@ -224,9 +184,6 @@ class SynheartBehavior {
           _eventController.add(event);
           debugPrint(
               'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parsed and added: ${event.eventType}');
-          // Window features - commented out (not needed for real-time event tracking)
-          // Always add to window aggregator (events are time-based, not session-based)
-          // _windowAggregator.addEvent(event);
         } catch (e, st) {
           debugPrint(
               'BEHAVIOR_PIPELINE: [BehaviorSDK] onEvent parse error: $e');
@@ -235,8 +192,8 @@ class SynheartBehavior {
         }
         break;
       case 'onMotionSampleBatch':
-        // Native side emits a periodic batch of raw 50 Hz accel samples for
-        // the runtime to consume via push_accel. See [onMotionSample] for the
+        // Native side emits a periodic batch of raw 50 Hz accel samples
+        // for downstream consumers. See [onMotionSample] for the
         // contract. Payload shape:
         //   { "samples": [ {ts_ms, ax, ay, az}, ... ] }
         try {
@@ -337,11 +294,10 @@ class SynheartBehavior {
       final summary = BehaviorSessionSummary.fromJson(resultMap);
       // print('Summary parsed successfully. Session ID: ${summary.sessionId}');
 
-      // Motion-state classification moved to the engine runtime per
-      // the motion-state spec. The session summary no longer carries
-      // `motion_state` / `motion_data`; consumers read motion state from
-      // the runtime's HSI snapshot via `synheart-core-flutter`'s
-      // `BehaviorModule.motionStateUpdates`.
+      // Motion-state classification is performed downstream. The
+      // session summary no longer carries `motion_state` / `motion_data`;
+      // consumers read motion state from the HSI snapshot exposed by
+      // Synheart Core when this SDK's events are fed into it.
 
       _activeSessions.remove(sessionId);
       if (_currentSessionId == sessionId) {
@@ -495,21 +451,9 @@ class SynheartBehavior {
       // Stop native SDK
       await _channel.invokeMethod('dispose');
 
-      // Window features - commented out (not needed for real-time event tracking)
-      // Stop window updates
-      // _windowUpdateTimer?.cancel();
-      // _windowUpdateTimer = null;
-
       // Close event streams
       await _eventController.close();
       await _motionSampleController.close();
-      // Window features - commented out (not needed for real-time event tracking)
-      // await _shortWindowController.close();
-      // await _longWindowController.close();
-
-      // Window features - commented out (not needed for real-time event tracking)
-      // Clear window aggregator
-      // _windowAggregator.clear();
 
       _initialized = false;
     } catch (e) {
@@ -629,64 +573,4 @@ class SynheartBehavior {
       maxLines: maxLines,
     );
   }
-
-  // Window features - commented out (not needed for real-time event tracking)
-  // /// Get features for a specific window type.
-  // BehaviorWindowFeatures? getWindowFeatures(WindowType windowType) {
-  //   if (!_initialized) return null;
-  //
-  //   final events = _windowAggregator.getWindowEvents(windowType);
-  //   final windowDurationMs = _windowAggregator.getWindowDurationMs(windowType);
-  //
-  //   return _featureExtractor.extractFeatures(
-  //     events,
-  //     windowType,
-  //     windowDurationMs,
-  //   );
-  // }
-  //
-  // User/device ID generation - commented out (not currently used)
-  // /// Generate an anonymous user ID.
-  // static String _generateUserId() {
-  //   // Generate a simple anonymous ID (in production, use proper anonymization)
-  //   final timestamp = DateTime.now().millisecondsSinceEpoch;
-  //   final random = (timestamp % 1000000).toRadixString(16);
-  //   return 'anon_$random';
-  // }
-  //
-  // /// Generate a device ID based on platform.
-  // static String _generateDeviceId() {
-  //   final platform = Platform.isAndroid
-  //       ? 'android'
-  //       : (Platform.isIOS ? 'ios' : 'unknown');
-  //   // In production, you might want to use device_info_plus package for more details
-  //   return 'synheart_${platform}_${Platform.operatingSystemVersion.split(' ').first}';
-  // }
-
-  // Window features - commented out (not needed for real-time event tracking)
-  // int _longWindowUpdateCounter = 0;
-  //
-  // /// Start periodic window feature updates.
-  // void _startWindowUpdates() {
-  //   // Update short window every 5 seconds, long window every 30 seconds
-  //   _windowUpdateTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-  //     if (!_initialized) return;
-  //
-  //     // Always update short window
-  //     final shortFeatures = getWindowFeatures(WindowType.short);
-  //     if (shortFeatures != null) {
-  //       _shortWindowController.add(shortFeatures);
-  //     }
-  //
-  //     // Update long window every 30 seconds (every 6th update)
-  //     _longWindowUpdateCounter++;
-  //     if (_longWindowUpdateCounter >= 6) {
-  //       _longWindowUpdateCounter = 0;
-  //       final longFeatures = getWindowFeatures(WindowType.long);
-  //       if (longFeatures != null) {
-  //         _longWindowController.add(longFeatures);
-  //       }
-  //     }
-  //   });
-  // }
 }

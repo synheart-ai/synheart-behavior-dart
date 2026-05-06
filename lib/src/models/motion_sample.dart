@@ -1,11 +1,9 @@
 /// Raw 3-axis accelerometer sample produced by the native motion collector.
 ///
 /// Emitted by [SynheartBehavior.onMotionSample] in batches (typically ~50
-/// samples per 1-second window at 50 Hz) so the upstream runtime can run its
-/// own feature extraction and `MotionStateHead` per the motion-state spec.
-///
-/// The behavior SDK does not interpret these samples — they are passed through
-/// for the runtime to consume.
+/// samples per 1-second window at 50 Hz). The behavior SDK does not
+/// interpret these samples — they are passed through for downstream
+/// consumers (e.g. Synheart Core) to feed into a feature extractor.
 class MotionSample {
   /// UTC epoch milliseconds.
   final int tsMs;

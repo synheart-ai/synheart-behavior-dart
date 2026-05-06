@@ -29,7 +29,7 @@ These behavioral signals power downstream systems such as:
 - **Real-Time Streaming**: Event streams for scroll, tap, swipe, notification, and call interactions
 - **Session Tracking**: Built-in session management with comprehensive summaries
 - **On-Demand Metrics**: Calculate behavioral metrics for custom time ranges within sessions
-- **Raw motion forwarding (optional)**: 50 Hz accelerometer batches surfaced via `onMotionSample` for downstream consumers (e.g. the Synheart Runtime's motion classifier). The SDK is the *collector*, not the classifier.
+- **Raw motion forwarding (optional)**: 50 Hz accelerometer batches surfaced via `onMotionSample` for downstream consumers. The SDK is the *collector*, not the classifier.
 - **Flutter Integration**: Gesture detection widgets for Flutter apps
 - **Minimal Permissions**: No permissions required for basic functionality (scroll, tap, swipe). Optional permissions for notification and call tracking.
 - **Platform Support**: iOS and Android
@@ -53,7 +53,7 @@ flutter pub get
 
 This plugin ships as a standard Flutter plugin with native iOS/Android implementations. No additional native binaries are required for basic behavioral metrics.
 
-When `enableMotionLite` is on, the SDK forwards raw 50 Hz accelerometer batches via `onMotionSample`; downstream consumers (e.g. the Synheart Core SDK) feed those samples to the on-device motion classifier in the Synheart Runtime.
+When `emitRawMotionSamples` is on, the SDK forwards raw 50 Hz accelerometer batches via `onMotionSample`; downstream consumers (e.g. the Synheart Core SDK) feed those samples to the on-device motion classifier.
 
 For optional features (notifications and calls), see the [Permissions](#-permissions) section below.
 
@@ -211,16 +211,22 @@ behavior.onEvent.listen((event) {
 
 ## 📊 Event Types
 
-The SDK collects these behavioral event types:
+`BehaviorEventType` has **eight canonical values**:
+`scroll, tap, swipe, app_switch, notification, call, typing,
+clipboard`.
 
-- **Scroll**: Velocity, acceleration, direction, direction reversals
-- **Tap**: Duration, long-press detection
-- **Swipe**: Direction, distance, velocity, acceleration
-- **Notification**: Received, opened, ignored (requires permission)
-- **Call**: Answered, ignored, dismissed (requires permission)
-- **Typing**: Speed, cadence, gap ratio, backspace count (no content)
-- **Clipboard**: Copy / paste / cut event counts (no content)
-- **App switch**: Used internally for task-switch metrics
+- **scroll**: Velocity, acceleration, direction, direction reversals
+- **tap**: Duration, long-press detection
+- **swipe**: Direction, distance, velocity, acceleration
+- **app_switch**: Foreground/background transitions, used for task-switch metrics
+- **notification**: Received, opened, ignored (requires permission)
+- **call**: Answered, ignored, dismissed (requires permission)
+- **typing**: Speed, cadence, gap ratio, backspace count (no content)
+- **clipboard**: Copy / paste / cut event counts (no content)
+
+> This package is the **collector**. Higher-level behavioral metrics
+> (focus hint, distraction score, burstiness, etc.) are computed by
+> the Synheart Runtime when these events are fed into Synheart Core.
 
 Each event includes:
 
@@ -292,7 +298,8 @@ final config = BehaviorConfig(
   // Enable/disable signal types
   enableInputSignals: true,        // Scroll, tap, swipe gestures
   enableAttentionSignals: true,    // App switching, idle gaps, session stability
-  enableMotionLite: true,          // Forward raw 50 Hz accel batches via onMotionSample
+  enableMotionLite: true,          // Lightweight on-device motion classification
+  emitRawMotionSamples: true,      // Forward raw 50 Hz accel batches via onMotionSample
 
   // Session configuration
   sessionIdPrefix: 'MYAPP',        // Custom session ID prefix (default: 'SESS')
