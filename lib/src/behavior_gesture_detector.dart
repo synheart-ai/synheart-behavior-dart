@@ -753,14 +753,6 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
     final now = DateTime.now();
     final lengthDiff = currentLength - _previousLength;
 
-    // DEBUG: Log all text changes
-    logDebug(
-        '📝 [TEXT CHANGE] previousLength: $_previousLength, currentLength: $currentLength, lengthDiff: $lengthDiff');
-    logDebug(
-        '📝 [TEXT CHANGE] _interKeyLatencies.length: ${_interKeyLatencies.length}, _backspaceCount: $_backspaceCount');
-    logDebug(
-        '📝 [TEXT CHANGE] _sessionStartTime: $_sessionStartTime, _lastKeystrokeTime: $_lastKeystrokeTime');
-
     // Only detect when text is added (not deleted)
     if (currentLength > _previousLength) {
       // Detect paste: large text insertion in short time
@@ -821,11 +813,6 @@ class _BehaviorTextFieldState extends State<BehaviorTextField> {
         if (_lastKeystrokeTime != null) {
           final latency = now.difference(_lastKeystrokeTime!).inMilliseconds;
           _interKeyLatencies.add(latency);
-          logDebug(
-              '⌨️ [TYPING] Keystroke detected - latency: ${latency}ms, total intervals: ${_interKeyLatencies.length}');
-        } else {
-          // First keystroke: don't store interval, but log it
-          logDebug('⌨️ [TYPING] First keystroke detected (no interval yet)');
         }
         // First keystroke: don't store anything (no previous keystroke to measure interval)
 
