@@ -454,11 +454,11 @@ adb shell top -n 1 | grep com.example.synheart_behavior_example
 
 # Memory usage
 adb shell dumpsys meminfo com.example.synheart_behavior_example | grep -A 10 "App Summary"
-
-# Expected:
-# CPU: <2%
-# Memory: <500 KB for SDK (check "Private" column)
 ```
+
+Profile your own host app for ground-truth CPU and memory numbers
+— values vary with config (which signals are enabled, how many
+events the host handler emits per second) and the device.
 
 #### iOS
 
@@ -468,11 +468,11 @@ adb shell dumpsys meminfo com.example.synheart_behavior_example | grep -A 10 "Ap
 4. Click **Open Console**
 5. Monitor for memory/CPU warnings
 
-**Expected Performance**:
+**What to watch for**:
 
-- **CPU Usage**: <2% average, <5% peak
-- **Memory**: <500 KB resident memory
-- **No lag** in UI interactions
+- No lag in UI interactions while the SDK is collecting.
+- CPU and memory deltas stay within whatever budget your host app
+  has allocated for telemetry.
 
 ---
 
@@ -531,7 +531,7 @@ flutter run
 
 ```bash
 # Verify native files exist
-ls -la android/src/main/java/ai/synheart/behavior/
+ls -la android/src/main/kotlin/ai/synheart/behavior/
 ls -la ios/Classes/
 
 # Should see:
