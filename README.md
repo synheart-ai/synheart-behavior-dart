@@ -766,10 +766,6 @@ contribution path.
 
 Apache 2.0 License - see [LICENSE](LICENSE) file for details.
 
-## 👥 Author
-
-Israel Goytom
-
 ## 🔗 Links
 
 - 📦 [pub.dev package](https://pub.dev/packages/synheart_behavior)
