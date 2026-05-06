@@ -211,13 +211,16 @@ behavior.onEvent.listen((event) {
 
 ## 📊 Event Types
 
-The SDK collects five types of behavioral events:
+The SDK collects these behavioral event types:
 
 - **Scroll**: Velocity, acceleration, direction, direction reversals
 - **Tap**: Duration, long-press detection
 - **Swipe**: Direction, distance, velocity, acceleration
 - **Notification**: Received, opened, ignored (requires permission)
 - **Call**: Answered, ignored, dismissed (requires permission)
+- **Typing**: Speed, cadence, gap ratio, backspace count (no content)
+- **Clipboard**: Copy / paste / cut event counts (no content)
+- **App switch**: Used internally for task-switch metrics
 
 Each event includes:
 
@@ -352,7 +355,7 @@ print('Duration: ${summary.durationMs}ms');
 
 // Behavioral metrics
 print('Interaction Intensity: ${summary.behavioralMetrics.interactionIntensity}');
-print('Distraction Score: ${summary.behavioralMetrics.distractionScore}');
+print('Distraction Score: ${summary.behavioralMetrics.behavioralDistractionScore}');
 print('Focus Hint: ${summary.behavioralMetrics.focusHint}');
 print('Deep Focus Blocks: ${summary.behavioralMetrics.deepFocusBlocks.length}');
 
@@ -424,11 +427,11 @@ if (behavior.isInitialized) {
 Session-level outputs include:
 
 - `interactionIntensity`: Overall interaction rate and engagement
-- `distractionScore`: Behavioral proxy for distraction (0-1)
+- `behavioralDistractionScore`: Behavioral proxy for distraction (0-1)
 - `focusHint`: Behavioral proxy for focus quality (0-1)
 - `deepFocusBlocks`: Periods of sustained, uninterrupted engagement
 - `taskSwitchRate`: Frequency of app switching
-- `idleRatio`: Proportion of idle time vs active interaction
+- `idleTimeRatio`: Proportion of idle time vs active interaction
 - `fragmentedIdleRatio`: Ratio of fragmented vs continuous idle periods
 - `burstiness`: Temporal clustering of interaction events
 - `notificationLoad`: Notification pressure and response patterns
