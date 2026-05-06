@@ -968,19 +968,6 @@ data class BehaviorEvent(
                             )
             )
 
-    // Legacy format for backward compatibility during migration
-    fun toLegacyMap(): Map<String, Any> =
-            mapOf(
-                    "session_id" to sessionId,
-                    "timestamp" to
-                            try {
-                                java.time.Instant.parse(timestamp).toEpochMilli()
-                            } catch (e: Exception) {
-                                System.currentTimeMillis()
-                            },
-                    "type" to eventType,
-                    "payload" to metrics
-            )
 }
 
 data class SessionData(

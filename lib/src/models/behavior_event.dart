@@ -292,14 +292,6 @@ class BehaviorEvent {
         },
       };
 
-  /// Convert to the legacy event-format shape used by older host integrations.
-  Map<String, dynamic> toLegacyJson() => {
-        'session_id': sessionId,
-        'timestamp': DateTime.parse(timestamp).millisecondsSinceEpoch,
-        'type': eventType.name,
-        'payload': metrics,
-      };
-
   @override
   String toString() {
     return 'BehaviorEvent(eventId: $eventId, sessionId: $sessionId, type: $eventType, timestamp: $timestamp)';

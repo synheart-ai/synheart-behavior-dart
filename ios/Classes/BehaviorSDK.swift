@@ -906,18 +906,6 @@ public struct BehaviorEvent {
         ]
     }
     
-    // Legacy format for backward compatibility during migration
-    public func toLegacyDictionary() -> [String: Any] {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestampMs = formatter.date(from: timestamp)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
-        return [
-            "session_id": sessionId,
-            "timestamp": Int64(timestampMs * 1000),
-            "type": eventType,
-            "payload": metrics
-        ]
-    }
 }
 
 struct SessionData {
