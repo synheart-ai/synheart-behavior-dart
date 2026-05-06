@@ -302,7 +302,7 @@ class SynheartNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        // If you never see this log, enable Settings > Apps > Notification access > Pulse Focus
+        // If you never see this log, enable Settings > Apps > Notification access > <your app>
         android.util.Log.i(
                 "SynheartNotificationListenerService",
                 "NOTIFICATION_COUNT: onListenerConnected — notification access enabled, collectors=${snapshotCollectors().size}"
