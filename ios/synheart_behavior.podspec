@@ -9,9 +9,9 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
 The Synheart Behavioral SDK collects digital behavioral signals from smartphones without collecting any text, content, or PII - only timing-based signals.
                        DESC
-  s.homepage         = 'https://github.com/synheart-ai/synheart-behavior-dart'
-  s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Israel Goytom' => 'israel@synheart.ai' }
+  s.homepage         = 'https://github.com/synheart-ai/synheart-behavior-flutter'
+  s.license          = { :type => 'Apache-2.0', :file => '../LICENSE' }
+  s.author           = 'Synheart AI'
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
