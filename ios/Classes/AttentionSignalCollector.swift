@@ -154,11 +154,6 @@ class AttentionSignalCollector {
         ))
     }
     
-    // Legacy method - kept for compatibility but not used
-    private func emitAppSwitch(direction: String, duration: Double) {
-        // Use emitAppSwitchEvent instead
-    }
-
     private func emitForegroundDuration(duration: Double) {
         // Foreground duration is computed from session data, not emitted as events
     }
