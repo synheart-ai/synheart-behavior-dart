@@ -565,7 +565,7 @@ truth on your device class.
 
 ## 🏗️ Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────┐
 │                  Your Flutter App                     │
 │                                                       │
