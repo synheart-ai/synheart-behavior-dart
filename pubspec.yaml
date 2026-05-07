@@ -1,5 +1,5 @@
 name: synheart_behavior
-description: A lightweight, privacy-preserving mobile SDK that collects digital behavioral signals from smartphones.
+description: Lightweight Flutter SDK for behavioral signal collection on iOS/Android — taps, scrolls, idle gaps, typing rhythm. No text, content, or PII captured.
 version: 0.2.1
 homepage: https://github.com/synheart-ai/synheart-behavior-flutter
 repository: https://github.com/synheart-ai/synheart-behavior-flutter
