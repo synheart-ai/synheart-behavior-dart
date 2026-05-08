@@ -1,0 +1,36 @@
+name: synheart_behavior
+description: Lightweight Flutter SDK for behavioral signal collection on iOS/Android — taps, scrolls, idle gaps, typing rhythm. No text, content, or PII captured.
+version: 0.3.0
+homepage: https://github.com/synheart-ai/synheart-behavior-flutter
+repository: https://github.com/synheart-ai/synheart-behavior-flutter
+issue_tracker: https://github.com/synheart-ai/synheart-behavior-flutter/issues
+license: Apache-2.0
+topics:
+  - behavior
+  - digital-phenotyping
+  - mobile-sensing
+  - flutter
+  - privacy
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: ai.synheart.behavior
+        pluginClass: SynheartBehaviorPlugin
+      ios:
+        pluginClass: SynheartBehaviorPlugin
+

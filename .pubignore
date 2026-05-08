@@ -1,0 +1,58 @@
+# Flutter/Dart build artifacts
+.dart_tool/
+.packages
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+**/build/
+
+# IDE / OS files
+.idea/
+.vscode/
+**/*.iml
+.DS_Store
+
+# Local environment / secrets
+.env
+
+# Android cache/build artifacts
+android/.gradle/
+android/.cxx/
+android/build/
+example/android/.gradle/
+example/android/build/
+
+# iOS cache/build artifacts
+ios/Flutter/ephemeral/
+ios/Pods/
+ios/.symlinks/
+example/ios/Flutter/ephemeral/
+example/ios/Pods/
+example/ios/.symlinks/
+
+# Flutter-generated ephemeral assets
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+
+# Repo-local notes (not part of package API)
+note.md
+note-2.md
+note-3.md
+note-4.md
+metrics.md
+PERMISSIONS_DATA_MATRIX.md
+response.md
+testing_plan.md
+ML_ENGINEER_QUESTION.md
+IMPLEMENTATION_VS_GUIDE.md
+
+# Historical Flux integration artifacts (do not publish)
+SYNHEART_FLUX_INTEGRATION.md
+android/src/main/cpp/
+android/src/main/jniLibs/
+android/src/main/kotlin/ai/synheart/behavior/FluxBridge.kt
+ios/Classes/FluxBridge.swift
+ios/Frameworks/SynheartFlux.xcframework/
+
