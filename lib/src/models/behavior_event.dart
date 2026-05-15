@@ -258,6 +258,29 @@ class BehaviorEvent {
     );
   }
 
+  /// Create an app-switch event. Mirrors the Kotlin / Swift SDKs.
+  ///
+  /// Use [action] to label the transition (e.g. `"foreground"`,
+  /// `"background"`, `"idle_gap"`, `"session_stability"`). Additional
+  /// platform-specific signals can be supplied via [extraMetrics].
+  factory BehaviorEvent.appSwitch({
+    required String sessionId,
+    String? action,
+    Map<String, dynamic> extraMetrics = const {},
+    String? eventId,
+    DateTime? timestamp,
+  }) {
+    final metrics = Map<String, dynamic>.from(extraMetrics);
+    if (action != null) metrics['action'] = action;
+    return BehaviorEvent(
+      eventId: eventId,
+      sessionId: sessionId,
+      timestamp: timestamp,
+      eventType: BehaviorEventType.app_switch,
+      metrics: metrics,
+    );
+  }
+
   factory BehaviorEvent.fromJson(Map<String, dynamic> json) {
     final eventData = json['event'] as Map<String, dynamic>? ?? json;
     final eventTypeStr = eventData['event_type'] as String? ?? 'tap';
