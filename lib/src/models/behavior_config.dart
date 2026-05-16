@@ -13,9 +13,8 @@ class BehaviorConfig {
   /// Emit raw 50 Hz accelerometer samples on [SynheartBehavior.onMotionSample].
   ///
   /// When `true`, the native motion collector batches its sample buffer and
-  /// pushes it to Dart once per second so a downstream runtime
-  /// (`synheart-core-flutter` → native runtime) can derive features
-  /// and run motion-state classification per the motion-state spec.
+  /// pushes it to Dart once per second so a downstream consumer can derive
+  /// features and run motion-state classification per the motion-state spec.
   ///
   /// Independent of [enableMotionLite]: the raw stream is for the runtime;
   /// `enableMotionLite` drives the SDK's own on-device motion

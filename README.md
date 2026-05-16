@@ -453,6 +453,28 @@ Typing session summary (when available) also includes:
 
 All metrics are bounded, normalized, and numerically stable.
 
+## 🧮 Compute boundary
+
+This SDK is an **event producer**. It emits behavioral events, raw counts,
+and a small set of cheap real-time stats (`scrollVelocity`, `tapRate`,
+`stabilityIndex`, `fragmentationIndex`, …). Per-session aggregates and
+ML-scored fields are computed downstream by a runtime / consumer that
+subscribes to the event stream — not on-device here.
+
+Concretely on `BehaviorSessionSummary`:
+
+- **Computed in the SDK**: `sessionId`, `startAt`, `endAt`, `microSession`,
+  `os`, `appId`, `appName`, `sessionSpacing`, `deviceContext`, `systemState`,
+  `activitySummary`, raw notification/call/clipboard counts.
+- **Computed by a downstream consumer (`null` until then)**:
+  `behavioralMetrics`, `notificationSummary.notificationIgnoreRate`,
+  `notificationSummary.notificationClusteringIndex`, `typingSessionSummary`,
+  `behavioralMetrics.behavioralDistractionScore`, `focusHint`,
+  `deepFocusBlocks`, motion-state classification.
+
+If you use this SDK standalone, expect those fields to be `null`. Wire
+the event stream into your aggregator to populate them.
+
 ## ⚙️ Additional Features
 
 ### Text Field Widget

@@ -360,33 +360,22 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
         val endDoNotDisturb = isDoNotDisturbEnabled()
         val endCharging = isCharging()
 
-        // Compute notification summary from events
+        // Raw counts only — derived metrics (ignore_rate, clustering_index,
+        // behavioral_metrics, typing_session_summary) are computed downstream
+        // from the emitted event stream. See README.md "Compute boundary".
         val notificationEvents = data.events.filter { it.eventType == "notification" }
         val notificationCount = notificationEvents.size
         val notificationIgnored = notificationEvents.count { it.metrics["action"] == "ignored" }
-        val notificationOpened = notificationEvents.count { it.metrics["action"] == "opened" }
-        val notificationIgnoreRate =
-                if (notificationCount > 0) {
-                    notificationIgnored.toDouble() / notificationCount
-                } else 0.0
 
-        // Compute notification clustering index (simplified: based on time distribution)
-        val notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
-
-        // Compute call summary
         val callEvents = data.events.filter { it.eventType == "call" }
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
-        // Compute clipboard summary
         val clipboardEvents = data.events.filter { it.eventType == "clipboard" }
         val clipboardCount = clipboardEvents.size
         val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
         val clipboardPasteCount = clipboardEvents.count { it.metrics["action"] == "paste" }
         val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
-
-        // Compute behavioral metrics from events
-        val behavioralMetrics = computeBehavioralMetricsFromEvents(data, duration, notificationCount, callCount)
 
         // Stop motion collection. Raw accel batches are pushed to the runtime
         // as they're collected (Phase 3); session summary no longer carries
@@ -415,14 +404,13 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                         "total_events" to data.eventCount,
                                         "app_switch_count" to data.appSwitchCount
                                 ),
-                        "behavioral_metrics" to behavioralMetrics,
+                        // behavioral_metrics, typing_session_summary, and the
+                        // derived notification rates are emitted by the runtime,
+                        // not the SDK. Raw counts only here.
                         "notification_summary" to
                                 mapOf(
                                         "notification_count" to notificationCount,
                                         "notification_ignored" to notificationIgnored,
-                                        "notification_ignore_rate" to notificationIgnoreRate,
-                                        "notification_clustering_index" to
-                                                notificationClusteringIndex,
                                         "call_count" to callCount,
                                         "call_ignored" to callIgnored
                                 ),
@@ -441,163 +429,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 )
                 )
 
-        var summary = summaryBase
-
-        // Add typing session summary if available from behavioral metrics
-        val typingSummary = behavioralMetrics["typing_session_summary"] as? Map<String, Any>
-        if (typingSummary != null && typingSummary.isNotEmpty()) {
-            summary = summary + mapOf("typing_session_summary" to typingSummary)
-        }
-
         // Don't remove sessionData here - it will be cleared when the next session starts
         // This allows calculateMetricsForTimeRange to access data for ended sessions
-        return summary
-    }
-
-    private fun computeNotificationClusteringIndex(
-            notificationEvents: List<BehaviorEvent>
-    ): Double {
-        if (notificationEvents.size < 2) return 0.0
-
-        // Compute time intervals between notifications
-        val intervals = mutableListOf<Long>()
-        for (i in 1 until notificationEvents.size) {
-            try {
-                val prevTime = Instant.parse(notificationEvents[i - 1].timestamp).toEpochMilli()
-                val currTime = Instant.parse(notificationEvents[i].timestamp).toEpochMilli()
-                intervals.add(currTime - prevTime)
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-
-        if (intervals.size == 0) return 0.0
-
-        // Compute coefficient of variation (lower CV = more clustered)
-        val mean = intervals.average()
-        if (mean == 0.0) return 0.0
-
-        val variance = intervals.map { (it - mean) * (it - mean) }.average()
-        val stdDev = kotlin.math.sqrt(variance)
-        val cv = stdDev / mean
-
-        // Clustering index: 1 - normalized CV (higher = more clustered)
-        return (1.0 - (cv / 10.0).coerceIn(0.0, 1.0)).coerceIn(0.0, 1.0)
-    }
-
-    /**
-     * Compute behavioral metrics from session events.
-     *
-     * Returns a map of behavioral metric keys to values, computed from the raw events.
-     */
-    private fun computeBehavioralMetricsFromEvents(
-            data: SessionData,
-            durationMs: Long,
-            notificationCount: Int,
-            callCount: Int
-    ): Map<String, Any> {
-        val durationSeconds = durationMs / 1000.0
-        if (durationSeconds <= 0) {
-            return mapOf(
-                "interaction_intensity" to 0.0,
-                "task_switch_rate" to 0.0,
-                "task_switch_cost" to 0,
-                "idle_time_ratio" to 0.0,
-                "active_time_ratio" to 0.0,
-                "notification_load" to 0.0,
-                "burstiness" to 0.0,
-                "behavioral_distraction_score" to 0.0,
-                "focus_hint" to 0.0,
-                "fragmented_idle_ratio" to 0.0,
-                "scroll_jitter_rate" to 0.0,
-                "deep_focus_blocks" to emptyList<Map<String, Any>>()
-            )
-        }
-
-        // Calculate interaction intensity from event counts
-        val tapEvents = data.events.filter { it.eventType == "tap" }
-        val scrollEvents = data.events.filter { it.eventType == "scroll" }
-        val typingEvents = data.events.filter { it.eventType == "typing" }
-        val totalInteractions = tapEvents.size + scrollEvents.size + typingEvents.size
-        val interactionIntensity = (totalInteractions / durationSeconds).coerceIn(0.0, 1.0)
-
-        // Task switch rate
-        val taskSwitchRate = if (durationSeconds > 0) {
-            (data.appSwitchCount / (durationSeconds / 60.0)).coerceIn(0.0, 100.0)
-        } else 0.0
-
-        // Estimate idle time from gaps between events
-        val sortedEvents = data.events.sortedBy { it.timestamp }
-        var totalIdleMs = 0L
-        val idleThresholdMs = 5000L // 5 second idle threshold
-        for (i in 1 until sortedEvents.size) {
-            try {
-                val prevTime = Instant.parse(sortedEvents[i - 1].timestamp).toEpochMilli()
-                val currTime = Instant.parse(sortedEvents[i].timestamp).toEpochMilli()
-                val gap = currTime - prevTime
-                if (gap > idleThresholdMs) {
-                    totalIdleMs += gap
-                }
-            } catch (e: Exception) {
-                // Skip invalid timestamps
-            }
-        }
-        val idleTimeRatio = if (durationMs > 0) (totalIdleMs.toDouble() / durationMs).coerceIn(0.0, 1.0) else 0.0
-        val activeTimeRatio = 1.0 - idleTimeRatio
-
-        // Notification load
-        val notificationLoad = if (durationSeconds > 0) {
-            (notificationCount / (durationSeconds / 60.0)).coerceIn(0.0, 1.0)
-        } else 0.0
-
-        // Burstiness: (sigma - mu) / (sigma + mu) remapped to [0,1]
-        val burstiness = if (sortedEvents.size >= 2) {
-            val intervals = mutableListOf<Double>()
-            for (i in 1 until sortedEvents.size) {
-                try {
-                    val prevTime = Instant.parse(sortedEvents[i - 1].timestamp).toEpochMilli()
-                    val currTime = Instant.parse(sortedEvents[i].timestamp).toEpochMilli()
-                    intervals.add((currTime - prevTime).toDouble())
-                } catch (e: Exception) {
-                    // Skip
-                }
-            }
-            if (intervals.isNotEmpty()) {
-                val mean = intervals.average()
-                val variance = intervals.map { (it - mean) * (it - mean) }.average()
-                val stdDev = kotlin.math.sqrt(variance)
-                if (mean + stdDev > 0) {
-                    ((stdDev - mean) / (stdDev + mean) + 1.0) / 2.0 // Remap from [-1,1] to [0,1]
-                } else 0.0
-            } else 0.0
-        } else 0.0
-
-        // Scroll jitter rate
-        val scrollJitterRate = if (scrollEvents.size >= 2) {
-            val velocities = scrollEvents.mapNotNull {
-                (it.metrics["velocity"] as? Number)?.toDouble()
-            }
-            if (velocities.size >= 2) {
-                val diffs = velocities.zipWithNext().map { kotlin.math.abs(it.second - it.first) }
-                val avgVelocity = velocities.average()
-                if (avgVelocity > 0) (diffs.average() / avgVelocity).coerceIn(0.0, 1.0) else 0.0
-            } else 0.0
-        } else 0.0
-
-        return mapOf(
-            "interaction_intensity" to interactionIntensity,
-            "task_switch_rate" to taskSwitchRate,
-            "task_switch_cost" to 0, // Requires more sophisticated measurement
-            "idle_time_ratio" to idleTimeRatio,
-            "active_time_ratio" to activeTimeRatio,
-            "notification_load" to notificationLoad,
-            "burstiness" to burstiness,
-            "behavioral_distraction_score" to 0.0, // Requires ML model
-            "focus_hint" to 0.0, // Requires ML model
-            "fragmented_idle_ratio" to 0.0,
-            "scroll_jitter_rate" to scrollJitterRate,
-            "deep_focus_blocks" to emptyList<Map<String, Any>>()
-        )
+        return summaryBase
     }
 
     fun getCurrentStats(): BehaviorStats {
@@ -671,55 +505,22 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                         events = filteredEvents.toMutableList()
                 )
 
-        // Compute notification summary
+        // Raw counts only — derived metrics (ignore_rate, clustering_index,
+        // behavioral_metrics, typing_session_summary) are computed downstream
+        // from the emitted event stream.
         val notificationEvents = filteredEvents.filter { it.eventType == "notification" }
         val notificationCount = notificationEvents.size
         val notificationIgnored = notificationEvents.count { it.metrics["action"] == "ignored" }
-        val notificationIgnoreRate =
-                if (notificationCount > 0) {
-                    notificationIgnored.toDouble() / notificationCount
-                } else 0.0
-        val notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
 
-        // Compute call summary
         val callEvents = filteredEvents.filter { it.eventType == "call" }
         val callCount = callEvents.size
         val callIgnored = callEvents.count { it.metrics["action"] == "ignored" }
 
-        // Compute clipboard summary
         val clipboardEvents = filteredEvents.filter { it.eventType == "clipboard" }
         val clipboardCount = clipboardEvents.size
         val clipboardCopyCount = clipboardEvents.count { it.metrics["action"] == "copy" }
         val clipboardPasteCount = clipboardEvents.count { it.metrics["action"] == "paste" }
         val clipboardCutCount = clipboardEvents.count { it.metrics["action"] == "cut" }
-
-        // Compute behavioral metrics from events
-        val allMetrics = computeBehavioralMetricsFromEvents(tempData, duration, notificationCount, callCount)
-
-        // Separate behavioral metrics from typing summary
-        val behavioralMetrics = allMetrics.filterKeys { key ->
-            key != "typing_session_summary"
-        }
-
-        val typingSessionSummary = allMetrics["typing_session_summary"] as? Map<String, Any>
-                ?: mapOf(
-                        "typing_session_count" to 0,
-                        "average_keystrokes_per_session" to 0.0,
-                        "average_typing_session_duration" to 0.0,
-                        "average_typing_speed" to 0.0,
-                        "average_typing_gap" to 0.0,
-                        "average_inter_tap_interval" to 0.0,
-                        "typing_cadence_stability" to 0.0,
-                        "burstiness_of_typing" to 0.0,
-                        "total_typing_duration" to 0,
-                        "active_typing_ratio" to 0.0,
-                        "typing_contribution_to_interaction_intensity" to 0.0,
-                        "deep_typing_blocks" to 0,
-                        "typing_fragmentation" to 0.0,
-                        "correction_rate" to 0.0,
-                        "clipboard_activity_rate" to 0.0,
-                        "typing_metrics" to emptyList<Map<String, Any>>()
-                )
 
         // Motion-state classification moved to the engine runtime
         // (per the motion-state spec); per-window motion data is no longer
@@ -734,9 +535,9 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                     else -> "portrait"
                 }
 
-        // Build and return metrics map
+        // Build and return metrics map. behavioral_metrics and
+        // typing_session_summary are computed by the runtime, not here.
         return mapOf(
-                "behavioral_metrics" to behavioralMetrics,
                 "device_context" to
                         mapOf(
                                 "avg_screen_brightness" to currentScreenBrightness.toDouble(),
@@ -759,8 +560,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                         mapOf(
                                 "notification_count" to notificationCount,
                                 "notification_ignored" to notificationIgnored,
-                                "notification_ignore_rate" to notificationIgnoreRate,
-                                "notification_clustering_index" to notificationClusteringIndex,
                                 "call_count" to callCount,
                                 "call_ignored" to callIgnored
                         ),
@@ -771,7 +570,6 @@ class BehaviorSDK(private val context: Context, private val config: BehaviorConf
                                 "clipboard_paste_count" to clipboardPasteCount,
                                 "clipboard_cut_count" to clipboardCutCount
                         ),
-                "typing_session_summary" to typingSessionSummary,
         )
     }
 

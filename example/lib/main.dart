@@ -979,78 +979,85 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-                    _buildInfoRow(
-                        'Interaction Intensity',
-                        widget.summary.behavioralMetrics.interactionIntensity
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Task Switch Rate',
-                        widget.summary.behavioralMetrics.taskSwitchRate
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Task Switch Cost',
-                        _formatMs(
-                            widget.summary.behavioralMetrics.taskSwitchCost)),
-                    _buildInfoRow(
-                        'Idle Time Ratio',
-                        widget.summary.behavioralMetrics.idleTimeRatio
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Active Time Ratio',
-                        widget.summary.behavioralMetrics.activeTimeRatio
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Notification Load',
-                        widget.summary.behavioralMetrics.notificationLoad
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Burstiness',
-                        widget.summary.behavioralMetrics.burstiness
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Distraction Score',
-                        widget.summary.behavioralMetrics
-                            .behavioralDistractionScore
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Focus Hint',
-                        widget.summary.behavioralMetrics.focusHint
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Fragmented Idle Ratio',
-                        widget.summary.behavioralMetrics.fragmentedIdleRatio
-                            .toStringAsFixed(3)),
-                    _buildInfoRow(
-                        'Scroll Jitter Rate',
-                        widget.summary.behavioralMetrics.scrollJitterRate
-                            .toStringAsFixed(3)),
-                    _buildInfoRow('Deep Focus Blocks',
-                        '${widget.summary.behavioralMetrics.deepFocusBlocks.length}'),
-                    if (widget.summary.behavioralMetrics.deepFocusBlocks
-                        .isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                    if (widget.summary.behavioralMetrics == null)
                       const Text(
-                        'Deep Focus Block Details:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      ...widget.summary.behavioralMetrics.deepFocusBlocks
-                          .asMap()
-                          .entries
-                          .map((entry) {
-                        final index = entry.key;
-                        final block = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 8, top: 4),
-                          child: Text(
-                            'Block ${index + 1}: ${_formatDateTime(block.startAt)} - ${_formatDateTime(block.endAt)} (${_formatMs(block.durationMs)})',
-                            style: Theme.of(context).textTheme.bodySmall,
+                        'Behavior metrics are computed downstream from the event stream, not in the SDK.',
+                        style: TextStyle(fontStyle: FontStyle.italic),
+                      )
+                    else ...[
+                      _buildInfoRow(
+                          'Interaction Intensity',
+                          widget.summary.behavioralMetrics!.interactionIntensity
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Task Switch Rate',
+                          widget.summary.behavioralMetrics!.taskSwitchRate
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Task Switch Cost',
+                          _formatMs(
+                              widget.summary.behavioralMetrics!.taskSwitchCost)),
+                      _buildInfoRow(
+                          'Idle Time Ratio',
+                          widget.summary.behavioralMetrics!.idleTimeRatio
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Active Time Ratio',
+                          widget.summary.behavioralMetrics!.activeTimeRatio
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Notification Load',
+                          widget.summary.behavioralMetrics!.notificationLoad
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Burstiness',
+                          widget.summary.behavioralMetrics!.burstiness
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Distraction Score',
+                          widget.summary.behavioralMetrics!
+                              .behavioralDistractionScore
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Focus Hint',
+                          widget.summary.behavioralMetrics!.focusHint
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Fragmented Idle Ratio',
+                          widget.summary.behavioralMetrics!.fragmentedIdleRatio
+                              .toStringAsFixed(3)),
+                      _buildInfoRow(
+                          'Scroll Jitter Rate',
+                          widget.summary.behavioralMetrics!.scrollJitterRate
+                              .toStringAsFixed(3)),
+                      _buildInfoRow('Deep Focus Blocks',
+                          '${widget.summary.behavioralMetrics!.deepFocusBlocks.length}'),
+                      if (widget.summary.behavioralMetrics!.deepFocusBlocks
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Deep Focus Block Details:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
-                        );
-                      }),
+                        ),
+                        const SizedBox(height: 4),
+                        ...widget.summary.behavioralMetrics!.deepFocusBlocks
+                            .asMap()
+                            .entries
+                            .map((entry) {
+                          final index = entry.key;
+                          final block = entry.value;
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 8, top: 4),
+                            child: Text(
+                              'Block ${index + 1}: ${_formatDateTime(block.startAt)} - ${_formatDateTime(block.endAt)} (${_formatMs(block.durationMs)})',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          );
+                        }),
+                      ],
                     ],
                   ],
                 ),

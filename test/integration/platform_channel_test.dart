@@ -172,7 +172,7 @@ void main() {
       expect(methodCalls.any((call) => call.method == 'endSession'), true);
       expect(summary.sessionId, 'test-session');
       expect(summary.durationMs, greaterThanOrEqualTo(59000));
-      expect(summary.behavioralMetrics.focusHint, 0.8);
+      expect(summary.behavioralMetrics!.focusHint, 0.8);
     });
 
     test('getCurrentStats retrieves stats from platform', () async {
