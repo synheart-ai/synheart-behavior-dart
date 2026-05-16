@@ -291,8 +291,8 @@ void main() {
 
       expect(summary.activitySummary.totalEvents, 10);
       expect(summary.activitySummary.appSwitchCount, 3);
-      expect(summary.behavioralMetrics.interactionIntensity, 0.5);
-      expect(summary.behavioralMetrics.fragmentedIdleRatio, 0.15);
+      expect(summary.behavioralMetrics!.interactionIntensity, 0.5);
+      expect(summary.behavioralMetrics!.fragmentedIdleRatio, 0.15);
     });
 
     test('fromJson creates summary correctly', () {
@@ -346,7 +346,7 @@ void main() {
       expect(summary.sessionId, 'test-session');
       expect(summary.durationMs, 1000);
       expect(summary.activitySummary.totalEvents, 10);
-      expect(summary.behavioralMetrics.interactionIntensity, 0.5);
+      expect(summary.behavioralMetrics!.interactionIntensity, 0.5);
     });
 
     test('toJson converts correctly', () {

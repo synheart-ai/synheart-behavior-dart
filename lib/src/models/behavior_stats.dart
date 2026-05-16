@@ -1,14 +1,19 @@
 /// Rolling statistics snapshot of current behavioral signals.
+///
+/// Fields are nullable when the corresponding signal hasn't been observed
+/// yet, or — for typing fields — when typing aggregation is performed by
+/// a downstream consumer rather than on-device in this SDK.
 class BehaviorStats {
-  // Typing functionality removed - these fields are always null
-  // /// Current typing cadence (keys per second).
-  // final double? typingCadence;
+  /// Current typing cadence (keys per second). Null on Flutter when typing
+  /// aggregation is delegated to the runtime. Kept for cross-SDK parity.
+  final double? typingCadence;
 
-  // /// Current inter-key latency in milliseconds.
-  // final double? interKeyLatency;
+  /// Current inter-key latency in milliseconds. Null when not aggregated locally.
+  final double? interKeyLatency;
 
-  // /// Current burst length (number of keys in current burst).
-  // final int? burstLength;
+  /// Current burst length (number of keys in current burst). Null when not
+  /// aggregated locally.
+  final int? burstLength;
 
   /// Current scroll velocity (pixels per second).
   final double? scrollVelocity;
@@ -41,9 +46,9 @@ class BehaviorStats {
   final int timestamp;
 
   const BehaviorStats({
-    // this.typingCadence,
-    // this.interKeyLatency,
-    // this.burstLength,
+    this.typingCadence,
+    this.interKeyLatency,
+    this.burstLength,
     this.scrollVelocity,
     this.scrollAcceleration,
     this.scrollJitter,
@@ -58,26 +63,26 @@ class BehaviorStats {
 
   factory BehaviorStats.fromJson(Map<String, dynamic> json) {
     return BehaviorStats(
-      // typingCadence: json['typing_cadence'] as double?,
-      // interKeyLatency: json['inter_key_latency'] as double?,
-      // burstLength: json['burst_length'] as int?,
-      scrollVelocity: json['scroll_velocity'] as double?,
-      scrollAcceleration: json['scroll_acceleration'] as double?,
-      scrollJitter: json['scroll_jitter'] as double?,
-      tapRate: json['tap_rate'] as double?,
+      typingCadence: (json['typing_cadence'] as num?)?.toDouble(),
+      interKeyLatency: (json['inter_key_latency'] as num?)?.toDouble(),
+      burstLength: (json['burst_length'] as num?)?.toInt(),
+      scrollVelocity: (json['scroll_velocity'] as num?)?.toDouble(),
+      scrollAcceleration: (json['scroll_acceleration'] as num?)?.toDouble(),
+      scrollJitter: (json['scroll_jitter'] as num?)?.toDouble(),
+      tapRate: (json['tap_rate'] as num?)?.toDouble(),
       appSwitchesPerMinute: json['app_switches_per_minute'] as int? ?? 0,
-      foregroundDuration: json['foreground_duration'] as double?,
-      idleGapSeconds: json['idle_gap_seconds'] as double?,
-      stabilityIndex: json['stability_index'] as double?,
-      fragmentationIndex: json['fragmentation_index'] as double?,
+      foregroundDuration: (json['foreground_duration'] as num?)?.toDouble(),
+      idleGapSeconds: (json['idle_gap_seconds'] as num?)?.toDouble(),
+      stabilityIndex: (json['stability_index'] as num?)?.toDouble(),
+      fragmentationIndex: (json['fragmentation_index'] as num?)?.toDouble(),
       timestamp: json['timestamp'] as int,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        // 'typing_cadence': typingCadence,
-        // 'inter_key_latency': interKeyLatency,
-        // 'burst_length': burstLength,
+        'typing_cadence': typingCadence,
+        'inter_key_latency': interKeyLatency,
+        'burst_length': burstLength,
         'scroll_velocity': scrollVelocity,
         'scroll_acceleration': scrollAcceleration,
         'scroll_jitter': scrollJitter,

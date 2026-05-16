@@ -307,29 +307,21 @@ public class BehaviorSDK {
         let endDoNotDisturb = isDoNotDisturbEnabled()
         let endCharging = isCharging()
         
-        // Compute notification summary from events
+        // Raw counts only — derived metrics (ignore_rate, clustering_index,
+        // behavioral_metrics, typing_session_summary) are computed downstream
+        // from the emitted event stream.
         let notificationEvents = data.events.filter { $0.eventType == "notification" }
         let notificationCount = notificationEvents.count
-        let notificationIgnored = notificationEvents.filter { 
-            ($0.metrics["action"] as? String) == "ignored" 
+        let notificationIgnored = notificationEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
         }.count
-        let notificationOpened = notificationEvents.filter { 
-            ($0.metrics["action"] as? String) == "opened" 
-        }.count
-        let notificationIgnoreRate = notificationCount > 0 ? 
-            Double(notificationIgnored) / Double(notificationCount) : 0.0
-        
-        // Compute notification clustering index
-        let notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
-        
-        // Compute call summary
+
         let callEvents = data.events.filter { $0.eventType == "call" }
         let callCount = callEvents.count
-        let callIgnored = callEvents.filter { 
-            ($0.metrics["action"] as? String) == "ignored" 
+        let callIgnored = callEvents.filter {
+            ($0.metrics["action"] as? String) == "ignored"
         }.count
-        
-        // Compute clipboard summary
+
         let clipboardEvents = data.events.filter { $0.eventType == "clipboard" }
         let clipboardCount = clipboardEvents.count
         let clipboardCopyCount = clipboardEvents.filter {
@@ -341,9 +333,6 @@ public class BehaviorSDK {
         let clipboardCutCount = clipboardEvents.filter {
             ($0.metrics["action"] as? String) == "cut"
         }.count
-
-        // Compute behavioral metrics from events
-        let behavioralMetrics = computeBehavioralMetricsFromEvents(data: data, durationMs: Int64(duration), notificationCount: notificationCount, callCount: callCount)
 
         // Stop motion collection. Raw accel batches are pushed to the runtime
         // as they're collected (Phase 3); session summary no longer carries
@@ -372,12 +361,12 @@ public class BehaviorSDK {
                 "total_events": data.eventCount,
                 "app_switch_count": data.appSwitchCount
             ],
-            "behavioral_metrics": behavioralMetrics,
+            // behavioral_metrics, typing_session_summary, and the
+            // derived notification rates are emitted by the runtime,
+            // not the SDK. Raw counts only here.
             "notification_summary": [
                 "notification_count": notificationCount,
                 "notification_ignored": notificationIgnored,
-                "notification_ignore_rate": notificationIgnoreRate,
-                "notification_clustering_index": notificationClusteringIndex,
                 "call_count": callCount,
                 "call_ignored": callIgnored
             ],
@@ -394,153 +383,10 @@ public class BehaviorSDK {
             ]
         ]
         
-        // Add typing session summary if available from behavioral metrics
-        if let typingSummary = behavioralMetrics["typing_session_summary"] as? [String: Any], !typingSummary.isEmpty {
-            summary["typing_session_summary"] = typingSummary
-        }
-        
         // Don't remove sessionData here - it will be cleared when the next session starts
         // This allows calculateMetricsForTimeRange to access data for ended sessions
         NotificationCenter.default.removeObserver(self, name: UIDevice.orientationDidChangeNotification, object: nil)
         return summary
-    }
-    
-    private func computeNotificationClusteringIndex(_ notificationEvents: [BehaviorEvent]) -> Double {
-        if notificationEvents.count < 2 { return 0.0 }
-        
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
-        // Compute time intervals between notifications
-        var intervals: [Double] = []
-        for i in 1..<notificationEvents.count {
-            if let prevDate = formatter.date(from: notificationEvents[i-1].timestamp),
-               let currDate = formatter.date(from: notificationEvents[i].timestamp) {
-                let interval = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
-                intervals.append(interval)
-            }
-        }
-        
-        if intervals.isEmpty { return 0.0 }
-        
-        // Compute coefficient of variation (lower CV = more clustered)
-        let mean = intervals.reduce(0, +) / Double(intervals.count)
-        if mean == 0.0 { return 0.0 }
-        
-        let variance = intervals.map { pow($0 - mean, 2) }.reduce(0, +) / Double(intervals.count)
-        let stdDev = sqrt(variance)
-        let cv = stdDev / mean
-        
-        // Clustering index: 1 - normalized CV (higher = more clustered)
-        return max(0.0, min(1.0, 1.0 - (cv / 10.0)))
-    }
-    
-
-    /// Compute behavioral metrics from session events.
-    ///
-    /// Returns a dictionary of behavioral metric keys to values, computed from the raw events.
-    private func computeBehavioralMetricsFromEvents(data: SessionData, durationMs: Int64, notificationCount: Int, callCount: Int) -> [String: Any] {
-        let durationSeconds = Double(durationMs) / 1000.0
-        if durationSeconds <= 0 {
-            return [
-                "interaction_intensity": 0.0,
-                "task_switch_rate": 0.0,
-                "task_switch_cost": 0,
-                "idle_time_ratio": 0.0,
-                "active_time_ratio": 0.0,
-                "notification_load": 0.0,
-                "burstiness": 0.0,
-                "behavioral_distraction_score": 0.0,
-                "focus_hint": 0.0,
-                "fragmented_idle_ratio": 0.0,
-                "scroll_jitter_rate": 0.0,
-                "deep_focus_blocks": [] as [[String: Any]]
-            ]
-        }
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        // Calculate interaction intensity from event counts
-        let tapEvents = data.events.filter { $0.eventType == "tap" }
-        let scrollEvents = data.events.filter { $0.eventType == "scroll" }
-        let typingEvents = data.events.filter { $0.eventType == "typing" }
-        let totalInteractions = tapEvents.count + scrollEvents.count + typingEvents.count
-        let interactionIntensity = min(1.0, max(0.0, Double(totalInteractions) / durationSeconds))
-
-        // Task switch rate
-        let taskSwitchRate = durationSeconds > 0 ?
-            min(100.0, max(0.0, Double(data.appSwitchCount) / (durationSeconds / 60.0))) : 0.0
-
-        // Estimate idle time from gaps between events
-        let sortedEvents = data.events.sorted { $0.timestamp < $1.timestamp }
-        var totalIdleMs: Double = 0
-        let idleThresholdMs: Double = 5000 // 5 second idle threshold
-        for i in 1..<max(1, sortedEvents.count) {
-            if let prevDate = formatter.date(from: sortedEvents[i - 1].timestamp),
-               let currDate = formatter.date(from: sortedEvents[i].timestamp) {
-                let gap = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
-                if gap > idleThresholdMs {
-                    totalIdleMs += gap
-                }
-            }
-        }
-        let idleTimeRatio = durationMs > 0 ? min(1.0, max(0.0, totalIdleMs / Double(durationMs))) : 0.0
-        let activeTimeRatio = 1.0 - idleTimeRatio
-
-        // Notification load
-        let notificationLoad = durationSeconds > 0 ?
-            min(1.0, max(0.0, Double(notificationCount) / (durationSeconds / 60.0))) : 0.0
-
-        // Burstiness: (sigma - mu) / (sigma + mu) remapped to [0,1]
-        var burstiness = 0.0
-        if sortedEvents.count >= 2 {
-            var intervals: [Double] = []
-            for i in 1..<sortedEvents.count {
-                if let prevDate = formatter.date(from: sortedEvents[i - 1].timestamp),
-                   let currDate = formatter.date(from: sortedEvents[i].timestamp) {
-                    let interval = (currDate.timeIntervalSince1970 - prevDate.timeIntervalSince1970) * 1000
-                    intervals.append(interval)
-                }
-            }
-            if !intervals.isEmpty {
-                let mean = intervals.reduce(0, +) / Double(intervals.count)
-                let variance = intervals.map { pow($0 - mean, 2) }.reduce(0, +) / Double(intervals.count)
-                let stdDev = sqrt(variance)
-                if mean + stdDev > 0 {
-                    burstiness = ((stdDev - mean) / (stdDev + mean) + 1.0) / 2.0 // Remap from [-1,1] to [0,1]
-                }
-            }
-        }
-
-        // Scroll jitter rate
-        var scrollJitterRate = 0.0
-        if scrollEvents.count >= 2 {
-            let velocities = scrollEvents.compactMap { ($0.metrics["velocity"] as? NSNumber)?.doubleValue }
-            if velocities.count >= 2 {
-                let diffs = zip(velocities, velocities.dropFirst()).map { abs($1 - $0) }
-                let avgVelocity = velocities.reduce(0, +) / Double(velocities.count)
-                if avgVelocity > 0 {
-                    let avgDiff = diffs.reduce(0, +) / Double(diffs.count)
-                    scrollJitterRate = min(1.0, max(0.0, avgDiff / avgVelocity))
-                }
-            }
-        }
-
-        return [
-            "interaction_intensity": interactionIntensity,
-            "task_switch_rate": taskSwitchRate,
-            "task_switch_cost": 0, // Requires more sophisticated measurement
-            "idle_time_ratio": idleTimeRatio,
-            "active_time_ratio": activeTimeRatio,
-            "notification_load": notificationLoad,
-            "burstiness": burstiness,
-            "behavioral_distraction_score": 0.0, // Requires ML model
-            "focus_hint": 0.0, // Requires ML model
-            "fragmented_idle_ratio": 0.0,
-            "scroll_jitter_rate": scrollJitterRate,
-            "deep_focus_blocks": [] as [[String: Any]]
-        ]
     }
 
 
@@ -621,24 +467,21 @@ public class BehaviorSDK {
             events: filteredEvents
         )
         
-        // Compute notification summary
+        // Raw counts only — derived metrics (ignore_rate, clustering_index,
+        // behavioral_metrics, typing_session_summary) are computed downstream
+        // from the emitted event stream.
         let notificationEvents = filteredEvents.filter { $0.eventType == "notification" }
         let notificationCount = notificationEvents.count
         let notificationIgnored = notificationEvents.filter {
             ($0.metrics["action"] as? String) == "ignored"
         }.count
-        let notificationIgnoreRate = notificationCount > 0 ?
-            Double(notificationIgnored) / Double(notificationCount) : 0.0
-        let notificationClusteringIndex = computeNotificationClusteringIndex(notificationEvents)
-        
-        // Compute call summary
+
         let callEvents = filteredEvents.filter { $0.eventType == "call" }
         let callCount = callEvents.count
         let callIgnored = callEvents.filter {
             ($0.metrics["action"] as? String) == "ignored"
         }.count
-        
-        // Compute clipboard summary
+
         let clipboardEvents = filteredEvents.filter { $0.eventType == "clipboard" }
         let clipboardCount = clipboardEvents.count
         let clipboardCopyCount = clipboardEvents.filter {
@@ -650,41 +493,6 @@ public class BehaviorSDK {
         let clipboardCutCount = clipboardEvents.filter {
             ($0.metrics["action"] as? String) == "cut"
         }.count
-
-        // Compute behavioral metrics from events
-        let allMetrics = computeBehavioralMetricsFromEvents(
-            data: tempData,
-            durationMs: duration,
-            notificationCount: notificationCount,
-            callCount: callCount
-        )
-
-        // Separate behavioral metrics from typing summary
-        var behavioralMetrics: [String: Any] = [:]
-        for (key, value) in allMetrics {
-            if key != "typing_session_summary" {
-                behavioralMetrics[key] = value
-            }
-        }
-
-        let typingSessionSummary = allMetrics["typing_session_summary"] as? [String: Any] ?? [
-            "typing_session_count": 0,
-            "average_keystrokes_per_session": 0.0,
-            "average_typing_session_duration": 0.0,
-            "average_typing_speed": 0.0,
-            "average_typing_gap": 0.0,
-            "average_inter_tap_interval": 0.0,
-            "typing_cadence_stability": 0.0,
-            "burstiness_of_typing": 0.0,
-            "total_typing_duration": 0,
-            "active_typing_ratio": 0.0,
-            "typing_contribution_to_interaction_intensity": 0.0,
-            "deep_typing_blocks": 0,
-            "typing_fragmentation": 0.0,
-            "correction_rate": 0.0,
-            "clipboard_activity_rate": 0.0,
-            "typing_metrics": [] as [[String: Any]]
-        ]
 
         // Motion-state classification moved to the engine runtime
         // (per the motion-state spec); per-window motion data is no longer
@@ -701,9 +509,9 @@ public class BehaviorSDK {
             orientationStr = "portrait"
         }
         
-        // Build and return metrics map
+        // Build and return metrics map. behavioral_metrics and
+        // typing_session_summary are computed by the runtime, not here.
         return [
-            "behavioral_metrics": behavioralMetrics,
             "device_context": [
                 "avg_screen_brightness": currentScreenBrightness,
                 "start_orientation": orientationStr,
@@ -721,8 +529,6 @@ public class BehaviorSDK {
             "notification_summary": [
                 "notification_count": notificationCount,
                 "notification_ignored": notificationIgnored,
-                "notification_ignore_rate": notificationIgnoreRate,
-                "notification_clustering_index": notificationClusteringIndex,
                 "call_count": callCount,
                 "call_ignored": callIgnored
             ] as [String: Any],
@@ -732,7 +538,6 @@ public class BehaviorSDK {
                 "clipboard_paste_count": clipboardPasteCount,
                 "clipboard_cut_count": clipboardCutCount
             ] as [String: Any],
-            "typing_session_summary": typingSessionSummary,
         ] as [String: Any]
     }
 

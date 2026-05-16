@@ -510,8 +510,10 @@ class BehaviorSessionSummary {
   /// Activity summary.
   final ActivitySummary activitySummary;
 
-  /// Behavioral metrics.
-  final BehavioralMetrics behavioralMetrics;
+  /// Behavioral metrics. `null` until a downstream consumer aggregates them
+  /// from the event stream this SDK emits. The SDK does not compute these
+  /// on-device.
+  final BehavioralMetrics? behavioralMetrics;
 
   /// Notification summary.
   final NotificationSummary notificationSummary;
@@ -536,7 +538,7 @@ class BehaviorSessionSummary {
     required this.sessionSpacing,
     required this.deviceContext,
     required this.activitySummary,
-    required this.behavioralMetrics,
+    this.behavioralMetrics,
     required this.notificationSummary,
     required this.systemState,
     this.typingSessionSummary,
@@ -555,7 +557,8 @@ class BehaviorSessionSummary {
         'session_spacing': sessionSpacing,
         'device_context': deviceContext.toJson(),
         'activity_summary': activitySummary.toJson(),
-        'behavioral_metrics': behavioralMetrics.toJson(),
+        if (behavioralMetrics != null)
+          'behavioral_metrics': behavioralMetrics!.toJson(),
         'notification_summary': notificationSummary.toJson(),
         'system_state': systemState.toJson(),
         if (typingSessionSummary != null)
@@ -585,8 +588,10 @@ class BehaviorSessionSummary {
           Map<String, dynamic>.from(json['device_context'] as Map? ?? {})),
       activitySummary: ActivitySummary.fromJson(
           Map<String, dynamic>.from(json['activity_summary'] as Map? ?? {})),
-      behavioralMetrics: BehavioralMetrics.fromJson(
-          Map<String, dynamic>.from(json['behavioral_metrics'] as Map? ?? {})),
+      behavioralMetrics: json['behavioral_metrics'] != null
+          ? BehavioralMetrics.fromJson(
+              Map<String, dynamic>.from(json['behavioral_metrics'] as Map))
+          : null,
       notificationSummary: NotificationSummary.fromJson(
           Map<String, dynamic>.from(
               json['notification_summary'] as Map? ?? {})),
