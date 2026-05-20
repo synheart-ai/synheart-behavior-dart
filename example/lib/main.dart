@@ -995,8 +995,8 @@ class _SessionResultsScreenState extends State<SessionResultsScreen> {
                               .toStringAsFixed(3)),
                       _buildInfoRow(
                           'Task Switch Cost',
-                          _formatMs(
-                              widget.summary.behavioralMetrics!.taskSwitchCost)),
+                          _formatMs(widget
+                              .summary.behavioralMetrics!.taskSwitchCost)),
                       _buildInfoRow(
                           'Idle Time Ratio',
                           widget.summary.behavioralMetrics!.idleTimeRatio
